@@ -1,8 +1,3 @@
----
-description: 
-globs: 
-alwaysApply: true
----
 First, run these commands in order:
 1. git add .
 2. git --no-pager diff --staged
@@ -18,3 +13,5 @@ Create the message content following these rules:
 - Avoid using backticks () within the message text itself, as they can interfere with the command.
 - When constructing the git commit command, use separate -m flags for the subject line and each line of the body to ensure the multi-line message is processed correctly by the terminal.
 - Do not add | cat to end of diff
+
+Finally, call git push

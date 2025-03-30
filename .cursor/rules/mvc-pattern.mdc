@@ -1,0 +1,39 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# MVC Pattern
+
+When creating code consider how to structure the architecture using the MVC pattern.
+
+## Overview
+
+Here are the objects that make up the MVC pattern:
+
+Models - A purely data object. However, often times they will include "observable" variables that can be observed for changes. An observable wrapper is often used to notify observers when the variable changes.
+Views - A visual representation of the model.
+Controllers - A controller will often contain the logic for the MVC pattern. It will contain the logic for the event listeners and the logic for the data flow.
+Services - A service is a class that contains the logic for the application. It is often used to abstract the data source or to contain the logic for a specific task.
+Service Providers - A service provider is a class that contains the logic for the application. It is often used to abstract the data source or to contain the logic for a specific task.
+
+## Flow
+
+The flow of the MVC pattern is as follows:
+
+1. The Application is initialized.
+2. The Application starts by creating and initializing an Application Service Provider.
+    a. The Application Service Provider will be globally accessible.
+    b. The Application Service Provider is used to create various required services.
+3. The Application Service Provider will create and initialize a Scene Manager Service.
+    a. The Scene Manager Service will be globally accessible.
+    b. The Scene Manager Service will be responsible for loading and unloading scenes.
+    c. The Scene Manager Service will be responsible for managing the active scene.
+4. The Scene Manager Service will load a scene.
+    a. Each scene will have its own Scene Service Provider.
+    b. The Scene Service Provider will create a Scene Controller.
+    c. The Scene Controller will be responsible for creating models, views, and controllers.
+    d. The Scene Controller can hold references to models, views, and controllers.
+    e. Controllers can reference the Scene Manager Service to load and unload scenes.
+5. Step 4 will continue to repeat until the application is closed.
+    a. At any time, controllers can quit the application by calling the Application Service Provider's quit method.
