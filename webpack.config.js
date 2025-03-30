@@ -75,6 +75,7 @@ module.exports = {
   devServer: {
     static: './public', // Serve static files from the public directory
     hot: true,
+    allowedHosts: ['mcpinspector.etdofresh.com'],
     // Add the setupMiddlewares configuration
     setupMiddlewares: (middlewares, devServer) => {
       if (!devServer) {
