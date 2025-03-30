@@ -8,6 +8,7 @@ export interface McpConnectionConfig {
     transport: string;
     command: string;
     args: string[];
+    env: { [key: string]: string };
 }
 
 // Define the structure for callbacks that the communicator will use to signal events
@@ -51,7 +52,8 @@ export class McpCommunicationService {
             const urlParams = new URLSearchParams({
                 transport: config.transport,
                 command: config.command,
-                args: JSON.stringify(config.args) // Args are expected as a JSON string by the backend
+                args: JSON.stringify(config.args), // Args are expected as a JSON string by the backend
+                env: JSON.stringify(config.env) // Add environment variables
             });
             const sseUrl = `${this.MCP_PROXY_PATH}?${urlParams.toString()}`;
             this.logger?.LogDebug((a, b) => a(b), `SSE URL: ${sseUrl}`, "Service", "Comm", "Connect", "SSE", "URL");

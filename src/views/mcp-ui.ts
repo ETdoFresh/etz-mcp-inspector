@@ -11,6 +11,7 @@ export interface McpServerConfig {
     transport: string;
     command: string;
     args: string[];
+    env: { [key: string]: string }; // Environment variables
 }
 
 export class McpUIView {
@@ -25,6 +26,8 @@ export class McpUIView {
     private commandInput: HTMLInputElement;
     private addArgBtn: HTMLButtonElement;
     private argsList: HTMLUListElement;
+    private addEnvBtn: HTMLButtonElement;
+    private envList: HTMLUListElement;
     private saveServerBtn: HTMLButtonElement;
     private testConnectionBtn: HTMLButtonElement;
     private statusIndicator: HTMLSpanElement;
@@ -63,6 +66,8 @@ export class McpUIView {
         this.commandInput = this.getElement('command', HTMLInputElement);
         this.addArgBtn = this.getElement('add-arg-btn', HTMLButtonElement);
         this.argsList = this.getElement('args-list', HTMLUListElement);
+        this.addEnvBtn = this.getElement('add-env-btn', HTMLButtonElement);
+        this.envList = this.getElement('env-list', HTMLUListElement);
         this.testConnectionBtn = this.getElement('test-connection-btn', HTMLButtonElement);
         this.statusIndicator = this.getElement('status-indicator', HTMLSpanElement);
         this.errorMessageDiv = this.getElement('error-message', HTMLDivElement);
@@ -110,6 +115,8 @@ export class McpUIView {
 
         // --- Column 1 Listeners ---
         this.addServerBtn.addEventListener('click', () => this.actions!.onAddServer());
+        this.addArgBtn.addEventListener('click', () => this.actions!.onAddArgument());
+        this.addEnvBtn.addEventListener('click', () => this.actions!.onAddEnvVar());
 
         this.saveServerBtn.addEventListener('click', () => {
             const formData = this.getServerFormData();
@@ -148,11 +155,6 @@ export class McpUIView {
         this.serverNameInput.addEventListener('input', () => this.actions!.onConfigInputChange());
         this.transportSelect.addEventListener('change', () => this.actions!.onConfigInputChange());
         this.commandInput.addEventListener('input', () => this.actions!.onConfigInputChange());
-
-        this.addArgBtn.addEventListener('click', () => {
-            this.addArgumentInput();
-            this.actions!.onArgumentInputChange();
-        });
 
         this.argsList.addEventListener('input', (event) => {
             if ((event.target as HTMLElement).classList.contains('arg-input-dynamic')) {
@@ -226,6 +228,22 @@ export class McpUIView {
         return Array.from(inputs).map(input => input.value.trim()).filter(value => value !== '');
     }
 
+    public getAllEnvironmentVariables(): { [key: string]: string } {
+        const envVars: { [key: string]: string } = {};
+        const envItems = this.envList.querySelectorAll('.env-item');
+        envItems.forEach((item) => {
+            const keyInput = item.querySelector('.env-key') as HTMLInputElement;
+            const valueInput = item.querySelector('.env-value') as HTMLInputElement;
+            if (keyInput && valueInput) {
+                const key = keyInput.value.trim();
+                if (key) {
+                    envVars[key] = valueInput.value.trim();
+                }
+            }
+        });
+        return envVars;
+    }
+
     public getSelectedToolName(): string | null {
         return this.selectedTool ? this.selectedTool.name : null;
     }
@@ -244,6 +262,38 @@ export class McpUIView {
         if (args && args.length > 0) {
             args.forEach(arg => this.addArgumentInput(arg));
         }
+    }
+
+    public renderEnvironmentVariables(env: { [key: string]: string }): void {
+        this.envList.innerHTML = '';
+        Object.entries(env).forEach(([key, value]) => {
+            this.addEnvironmentVariableInput(key, value);
+        });
+    }
+
+    public addEnvironmentVariableInput(key: string = '', value: string = ''): void {
+        const li = document.createElement('li');
+        li.className = 'env-item';
+        li.innerHTML = `
+            <input type="text" class="env-key" placeholder="Key" value="${key}">
+            <input type="text" class="env-value" placeholder="Value" value="${value}">
+            <button class="delete-btn" title="Delete">×</button>
+        `;
+
+        const deleteBtn = li.querySelector('.delete-btn');
+        if (deleteBtn) {
+            deleteBtn.addEventListener('click', () => {
+                li.remove();
+                this.actions?.onConfigInputChange();
+            });
+        }
+
+        const inputs = li.querySelectorAll('input');
+        inputs.forEach(input => {
+            input.addEventListener('input', () => this.actions?.onConfigInputChange());
+        });
+
+        this.envList.appendChild(li);
     }
 
     // --- UI State Update Methods --- Called by Orchestrator via Callbacks
@@ -718,7 +768,8 @@ export class McpUIView {
         const transport = this.transportSelect.value;
         const command = this.commandInput.value.trim();
         const args = this.getAllArguments();
-        return { id, name, transport, command, args };
+        const env = this.getAllEnvironmentVariables();
+        return { id, name, transport, command, args, env };
     }
 
     // ADDED: Highlight selected server (public)
@@ -746,6 +797,7 @@ export class McpUIView {
         this.transportSelect.value = config.transport;
         this.commandInput.value = config.command;
         this.renderArgumentInputs(config.args);
+        this.renderEnvironmentVariables(config.env || {});
         this.saveServerBtn.textContent = "Update Server";
         this.connectionDetailsDiv.style.display = 'block';
         this.testConnectionBtn.disabled = false; // Enable connection test for selected server
@@ -759,6 +811,7 @@ export class McpUIView {
         this.transportSelect.value = 'STDIO';
         this.commandInput.value = '';
         this.renderArgumentInputs([]);
+        this.renderEnvironmentVariables({});
         this.saveServerBtn.textContent = "Add Server";
         this.connectionDetailsDiv.style.display = 'block'; // Keep visible for adding
         this.testConnectionBtn.disabled = true; // Disable test until saved/selected

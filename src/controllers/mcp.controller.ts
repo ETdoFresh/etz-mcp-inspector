@@ -9,6 +9,7 @@ import { Logger } from '../services/logger-service'; // Added
 // Updated UIActions interface to include server management
 export interface McpUIActions {
     onAddArgument: () => void; // View adds input locally, controller may save state
+    onAddEnvVar: () => void; // View adds environment variable input locally
     onTestConnection: (args: string[]) => void; // Still useful to pass current args from form for test/save
     onListTools: () => void;
     onExecuteTool: (params: { [key: string]: any }) => void;
@@ -56,9 +57,8 @@ export class McpController implements McpUIActions, McpCommunicationCallbacks {
 
     onAddArgument(): void {
         // View handles adding the input visually.
-        // We might want to trigger a save if a server is selected and being edited.
-        this.logger?.LogDebug((a, b) => a(b), "onAddArgument triggered", "Controller", "Action", "UIEvent");
-        // Consider if this should mark the current form as "dirty"
+        this.view.addArgumentInput();
+        this.logger?.LogDebug((a, b) => a(b), "Added new argument input", "Controller", "Action", "UIEvent");
     }
 
     onConfigInputChange(): void {
@@ -177,20 +177,14 @@ export class McpController implements McpUIActions, McpCommunicationCallbacks {
             return;
         }
 
-        // Decide whether to use SAVED config or CURRENT FORM data for the test
-        // Option 1: Use saved config (safer if form has unsaved changes)
+        // Use current form data to allow testing changes before saving
+        const formData = this.view.getServerFormData();
         const configToUse: McpConnectionConfig = {
-             transport: server.transport,
-             command: server.command,
-             args: server.args
-         };
-        // Option 2: Use current form data (allows testing changes before saving)
-        // const formData = this.view.getServerFormData();
-        // const configToUse: McpConnectionConfig = {
-        //     transport: formData.transport,
-        //     command: formData.command,
-        //     args: formData.args // or use argsFromForm passed in?
-        // };
+            transport: formData.transport,
+            command: formData.command,
+            args: formData.args,
+            env: formData.env || {}
+        };
 
         this.logger?.LogDebug((a,b)=>a(b), `Attempting connection with config: ${JSON.stringify(configToUse)}`, "Controller", "Connection")
 
@@ -249,6 +243,11 @@ export class McpController implements McpUIActions, McpCommunicationCallbacks {
         this.logger?.LogDebug((a, b) => a(b), "onArgumentInputChange triggered", "Controller", "Action", "UIEvent");
         // Trigger general config change handler
         this.onConfigInputChange();
+    }
+
+    onAddEnvVar(): void {
+        this.view.addEnvironmentVariableInput();
+        this.logger?.LogDebug((a, b) => a(b), "Added new environment variable input", "Controller", "Action", "UIEvent");
     }
 
     // --- Implementation of McpCommunicationCallbacks ---

@@ -91,7 +91,7 @@ class McpProxyHandler {
         console.log(`[MCP Proxy] Client ${clientId} connected via SSE.`);
 
         const parsedUrl = url.parse(req.url || '', true);
-        const { transport, command, args: argsString } = parsedUrl.query;
+        const { transport, command, args: argsString, env: envString } = parsedUrl.query;
 
         if (typeof command !== 'string' || !command) {
             this.sendSseMessage(newClient, 'connectionStatus', { status: 'error', error: 'Missing or invalid "command" query parameter.' });
@@ -113,8 +113,21 @@ class McpProxyHandler {
             }
         }
 
-        console.log(`[MCP Proxy] Client ${clientId} Config: transport=${transport}, command=${command}, args=${JSON.stringify(parsedArgs)}`);
-        this.spawnMcpProcess(newClient, command, parsedArgs, transport);
+        let parsedEnv = {};
+        if (typeof envString === 'string') {
+            try {
+                parsedEnv = JSON.parse(envString);
+                if (typeof parsedEnv !== 'object' || parsedEnv === null) throw new Error('Env must be a JSON object.');
+            } catch (e) {
+                this.sendSseMessage(newClient, 'connectionStatus', { status: 'error', error: `Invalid "env" query parameter (must be JSON object): ${e.message}` });
+                this.cleanupClient(newClient);
+                console.error(`[MCP Proxy] Client ${clientId} disconnected: Bad env format.`);
+                return;
+            }
+        }
+
+        console.log(`[MCP Proxy] Client ${clientId} Config: transport=${transport}, command=${command}, args=${JSON.stringify(parsedArgs)}, env=${JSON.stringify(parsedEnv)}`);
+        this.spawnMcpProcess(newClient, command, parsedArgs, transport, parsedEnv);
 
         req.on('close', () => {
             console.log(`[MCP Proxy] Client ${clientId} disconnected (SSE connection closed).`);
@@ -127,8 +140,9 @@ class McpProxyHandler {
      * @param {string} command
      * @param {string[]} args
      * @param {string | string[] | undefined} transport
+     * @param {Object} env
      */
-    spawnMcpProcess(client, command, args, transport) {
+    spawnMcpProcess(client, command, args, transport, env) {
         const transportLower = typeof transport === 'string' ? transport.toLowerCase() : '';
         if (transportLower !== 'stdio') {
             const errorMsg = `Unsupported transport type: ${transport}. Only 'stdio' is currently supported.`;
@@ -140,7 +154,25 @@ class McpProxyHandler {
 
         try {
             console.log(`[MCP Proxy] Spawning process for client ${client.id}: ${command} ${args.join(' ')}`);
-            const mcpProcess = spawn(command, args, { stdio: ['pipe', 'pipe', 'pipe'], shell: true });
+            console.log(`[MCP Proxy] Environment variables: ${JSON.stringify(env)}`);
+            
+            // Create a new environment object with all variables
+            const processEnv = {
+                ...process.env,
+                ...env
+            };
+
+            // For npx, we need to ensure the environment variables are available to the spawned process
+            if (command === 'npx') {
+                // Pass environment variables directly to the spawned process
+                processEnv.NODE_ENV = processEnv.NODE_ENV || 'development';
+            }
+
+            const mcpProcess = spawn(command, args, { 
+                stdio: ['pipe', 'pipe', 'pipe'],
+                env: processEnv,
+                shell: true // Keep shell for npx to work correctly
+            });
             client.mcpProcess = mcpProcess;
 
             this.sendSseMessage(client, 'connectionStatus', { status: 'connected' });

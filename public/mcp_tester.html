@@ -58,6 +58,13 @@
                         </ul>
                     </div>
                     <div class="form-group">
+                        <label for="env-input">Environment Variables:</label>
+                        <button id="add-env-btn" title="Add Environment Variable">+</button>
+                        <ul id="env-list">
+                            <!-- Dynamically added environment variables will appear here -->
+                        </ul>
+                    </div>
+                    <div class="form-group">
                         <button id="save-server-btn">Save Server</button>
                          <button id="test-connection-btn">Test Connection</button>
                          <span id="status-indicator" class="status-indicator"></span>
@@ -107,5 +114,35 @@
 
     </div>
     <script type="module" src="../dist/mcp_tester.js"></script>
+    <style>
+        .env-item {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 8px;
+            align-items: center;
+        }
+
+        .env-key {
+            flex: 1;
+            padding: 4px 8px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            background: var(--input-bg);
+            color: var(--text-color);
+        }
+
+        .env-value {
+            flex: 2;
+            padding: 4px 8px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            background: var(--input-bg);
+            color: var(--text-color);
+        }
+
+        #add-env-btn {
+            margin-bottom: 8px;
+        }
+    </style>
 </body>
 </html> 
