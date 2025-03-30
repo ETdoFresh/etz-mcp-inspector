@@ -420,66 +420,147 @@ button:disabled {
     opacity: 0.6;
 }
 
+/* Server List Item Buttons */
 .server-item-buttons {
     display: flex;
-    gap: 5px;
+    gap: 0.5rem;
     align-items: center;
 }
 
-.server-item-buttons button {
-    padding: 4px 8px;
-    font-size: 0.8em;
-    line-height: 1;
-    margin: 0;
+.server-item-buttons .btn {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    border-radius: 0.2rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    transition: all 0.2s ease-in-out;
 }
 
+.server-item-buttons .btn i {
+    font-size: 0.875rem;
+}
+
+.server-item-buttons .connect-btn {
+    background-color: var(--success-color);
+    color: white;
+    border: none;
+}
+
+.server-item-buttons .connect-btn:hover {
+    background-color: var(--success-hover-color);
+    transform: scale(1.05);
+}
+
+.server-item-buttons .connect-btn:active {
+    transform: scale(0.95);
+}
+
+.server-item-buttons .edit-btn {
+    background-color: var(--secondary-color);
+    color: white;
+    border: none;
+}
+
+.server-item-buttons .edit-btn:hover {
+    background-color: var(--secondary-hover-color);
+    transform: scale(1.05);
+}
+
+.server-item-buttons .edit-btn:active {
+    transform: scale(0.95);
+}
+
+.server-item-buttons .delete-btn {
+    background-color: var(--danger-color);
+    color: white;
+    border: none;
+}
+
+.server-item-buttons .delete-btn:hover {
+    background-color: var(--danger-hover-color);
+    transform: scale(1.05);
+}
+
+.server-item-buttons .delete-btn:active {
+    transform: scale(0.95);
+}
+
+/* Connection States */
 .server-item.connecting {
-    background-color: #e9ecef;
+    background-color: var(--secondary-color);
+    color: white;
 }
 
 .server-item.connected {
-    background-color: #e3f2fd;
+    background-color: var(--success-color);
+    color: white;
 }
 
-.server-item .spinner {
+.server-item.connecting .server-name::after {
+    content: '';
     display: inline-block;
-    width: 12px;
-    height: 12px;
-    border: 2px solid #f3f3f3;
-    border-top: 2px solid #3498db;
+    width: 1rem;
+    height: 1rem;
+    margin-left: 0.5rem;
+    border: 2px solid white;
     border-radius: 50%;
+    border-top-color: transparent;
     animation: spin 1s linear infinite;
-    margin-right: 5px;
 }
 
 @keyframes spin {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
+    to {
+        transform: rotate(360deg);
+    }
 }
 
-.server-item .connect-btn {
-    background-color: #28a745;
+/* Server list button icons */
+.server-list-item .btn i {
+    font-size: 14px;
+    line-height: 1;
+    vertical-align: middle;
+}
+
+.server-list-item .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.server-list-item .btn.connect {
+    background-color: #4CAF50;
     color: white;
 }
 
-.server-item .connect-btn:hover {
-    background-color: #218838;
+.server-list-item .btn.connect:hover {
+    background-color: #45a049;
 }
 
-.server-item .edit-btn {
-    background-color: #6c757d;
+.server-list-item .btn.edit {
+    background-color: #f0f0f0;
+    color: #666;
+}
+
+.server-list-item .btn.edit:hover {
+    background-color: #e0e0e0;
+}
+
+.server-list-item .btn.delete {
+    background-color: #ff4444;
     color: white;
 }
 
-.server-item .edit-btn:hover {
-    background-color: #5a6268;
-}
-
-.server-item .delete-btn {
-    background-color: #dc3545;
-    color: white;
-}
-
-.server-item .delete-btn:hover {
-    background-color: #c82333;
+.server-list-item .btn.delete:hover {
+    background-color: #cc0000;
 } 

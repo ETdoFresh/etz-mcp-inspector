@@ -277,17 +277,19 @@ export class McpController implements McpUIActions, McpCommunicationCallbacks {
             this.disconnectCurrent();
         }
 
+        // Clear columns 2 and 3 when starting a new connection
+        this.view.clearToolListAndExecution();
+
         // Update UI to show connecting state
         this.view.updateServerConnectionState(serverId, 'connecting');
         this.currentSelectedServerId = serverId;
-        this.view.setSelectedServer(serverId);
 
         // Get the current server configuration
         const config: McpConnectionConfig = {
             transport: server.transport,
             command: server.command,
-            args: server.args,
-            env: server.env
+            args: server.args || [],
+            env: server.env || {} // Ensure env is always an object
         };
 
         // Attempt to connect
@@ -409,29 +411,17 @@ export class McpController implements McpUIActions, McpCommunicationCallbacks {
         } catch (error: any) {
             this.logger?.LogError((a, b) => a(b), `Failed to load servers from localStorage: ${error.message}`, "Controller", "Persistence", "Error");
             this.servers = []; // Start with empty list on error
-            // Optionally inform the user
-            // this.view.showError("Could not load saved server configurations.", false);
         }
 
-        // Load last selected server ID
-        const lastSelectedId = localStorage.getItem(this.lastSelectedServerKey);
-        let serverToSelect: McpServerConfig | undefined = undefined;
+        // Start with no server selected
+        this.currentSelectedServerId = null;
+        this.isConnectedToServer = false;
 
-        if (lastSelectedId) {
-             serverToSelect = this.servers.find(s => s.id === lastSelectedId);
-        }
-
-        // If no last selection or last selected not found, select first server if available
-        if (!serverToSelect && this.servers.length > 0) {
-             serverToSelect = this.servers[0];
-        }
-
-        // Render the list and select the appropriate server
-        this.currentSelectedServerId = serverToSelect ? serverToSelect.id : null;
-        this.view.renderServerList(this.servers, this.currentSelectedServerId);
-        this.view.setSelectedServer(this.currentSelectedServerId); // Highlight selection in list
-        // Ensure form is hidden initially
+        // Render the list with no selection
+        this.view.renderServerList(this.servers, null);
+        this.view.setSelectedServer(null);
         this.view.hideServerForm();
+        this.view.showConnected(false); // This will hide the list tools button
     }
 
     private saveLastSelectedServerId(serverId: string | null): void {

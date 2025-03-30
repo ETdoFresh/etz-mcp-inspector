@@ -855,7 +855,14 @@ export class McpUIView {
             li.style.fontStyle = 'italic';
             this.serverListUl.appendChild(li);
             this.connectionDetailsDiv.style.display = 'none'; // Hide details if no servers
+            return;
         }
+
+        // First remove any existing selected class from all server items
+        const existingItems = this.serverListUl.querySelectorAll('.server-item');
+        existingItems.forEach(item => {
+            item.classList.remove('selected', 'active', 'connected');
+        });
 
         servers.forEach(server => {
             const li = document.createElement('li');
@@ -870,19 +877,19 @@ export class McpUIView {
             buttonsDiv.classList.add('server-item-buttons');
 
             const connectBtn = document.createElement('button');
-            connectBtn.innerHTML = '<i class="fas fa-plug"></i>'; // Using Font Awesome icon
+            connectBtn.innerHTML = '<i class="fas fa-play"></i>'; // Using Font Awesome play icon
             connectBtn.classList.add('btn', 'btn-sm', 'connect-btn');
             connectBtn.setAttribute('aria-label', `Connect to ${server.name}`);
             connectBtn.title = `Connect to ${server.name}`; // Tooltip
 
             const editBtn = document.createElement('button');
-            editBtn.innerHTML = '<i class="fas fa-edit"></i>'; // Using Font Awesome icon
+            editBtn.innerHTML = '<i class="fas fa-pencil-alt"></i>'; // Using Font Awesome pencil icon
             editBtn.classList.add('btn', 'btn-sm', 'edit-btn');
             editBtn.setAttribute('aria-label', `Edit ${server.name}`);
             editBtn.title = `Edit ${server.name}`; // Tooltip
 
             const deleteBtn = document.createElement('button');
-            deleteBtn.innerHTML = '<i class="fas fa-trash-alt"></i>'; // Using Font Awesome icon
+            deleteBtn.innerHTML = '<i class="fas fa-times"></i>'; // Using Font Awesome X icon
             deleteBtn.classList.add('btn', 'btn-sm', 'delete-btn');
             deleteBtn.setAttribute('aria-label', `Delete ${server.name}`);
             deleteBtn.title = `Delete ${server.name}`; // Tooltip
@@ -894,10 +901,9 @@ export class McpUIView {
             li.appendChild(nameSpan);
             li.appendChild(buttonsDiv);
 
+            // Only add selected class if this is the current selected server
             if (server.id === currentSelectedServerId) {
-                li.classList.add('active'); // Bootstrap class for selected item
-                // If a server is selected, ensure the details form is visible
-                this.connectionDetailsDiv.style.display = '';
+                li.classList.add('selected');
             }
 
             // Add event listeners only to the buttons
@@ -921,13 +927,11 @@ export class McpUIView {
             this.serverListUl.appendChild(li);
         });
 
-        // If no server is selected after rendering, but there are servers, hide details
-        if (!currentSelectedServerId && servers.length > 0) {
-            // Don't hide if a server was just added/saved (controller handles showing form)
-            // Only hide if explicitly no server is selected (e.g. after deletion of selected)
-            // Let the controller decide visibility via populate/clear form methods
-        } else if (servers.length > 0 && currentSelectedServerId) {
-            this.connectionDetailsDiv.style.display = ''; // Ensure visible if selection exists
+        // Update form visibility based on selection
+        if (!currentSelectedServerId) {
+            this.connectionDetailsDiv.style.display = 'none';
+        } else {
+            this.connectionDetailsDiv.style.display = 'block';
         }
     }
     // *** NEW METHOD END ***
@@ -942,8 +946,11 @@ export class McpUIView {
         const serverItem = this.serverListUl.querySelector(`[data-server-id="${serverId}"]`);
         if (!serverItem) return;
 
-        // Remove all connection-related classes
-        serverItem.classList.remove('connecting', 'connected');
+        // Remove all connection-related classes from all server items
+        const allServerItems = this.serverListUl.querySelectorAll('.server-item');
+        allServerItems.forEach(item => {
+            item.classList.remove('connecting', 'connected');
+        });
 
         // Add appropriate class based on state
         if (state === 'connecting') {
