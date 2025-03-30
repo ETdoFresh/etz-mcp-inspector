@@ -1,6 +1,7 @@
 import './theme-toggle';
 
 document.addEventListener('DOMContentLoaded', () => {
+    // --- UI Elements --- Get all elements first
     const transportSelect = document.getElementById('transport') as HTMLSelectElement | null;
     const commandInput = document.getElementById('command') as HTMLInputElement | null;
     const addArgBtn = document.getElementById('add-arg-btn') as HTMLButtonElement | null;
@@ -15,259 +16,363 @@ document.addEventListener('DOMContentLoaded', () => {
     const toolsListUl = document.getElementById('tools-list') as HTMLUListElement | null;
     const toolsLoadingMsg = document.getElementById('tools-loading-message') as HTMLDivElement | null;
     const toolsErrorMsg = document.getElementById('tools-error-message') as HTMLDivElement | null;
+    const toolExecutionArea = document.getElementById('tool-execution-area') as HTMLDivElement | null;
+    const selectedToolNameSpan = document.getElementById('selected-tool-name') as HTMLSpanElement | null;
+    const toolParamsForm = document.getElementById('tool-params-form') as HTMLFormElement | null;
+    const executeToolBtn = document.getElementById('execute-tool-btn') as HTMLButtonElement | null;
+    const toolResultArea = document.getElementById('tool-result-area') as HTMLDivElement | null;
+    const toolResultOutput = document.getElementById('tool-result-output') as HTMLPreElement | null;
+    const toolResultError = document.getElementById('tool-result-error') as HTMLDivElement | null;
+    const toolExecutingMsg = document.getElementById('tool-executing-message') as HTMLDivElement | null;
 
-    // Early exit if essential elements are missing
+    // --- Check all elements --- Fail early if any are missing
     if (!transportSelect || !commandInput || !addArgBtn || !argsList || !testConnectionBtn ||
         !statusIndicator || !errorMessageDiv || !connectingOverlay || !container || !listToolsBtn ||
-        !toolsListArea || !toolsListUl || !toolsLoadingMsg || !toolsErrorMsg) {
-        console.error("MCP Tester initialization failed: One or more required elements are missing from the DOM.");
+        !toolsListArea || !toolsListUl || !toolsLoadingMsg || !toolsErrorMsg || !toolExecutionArea ||
+        !selectedToolNameSpan || !toolParamsForm || !executeToolBtn || !toolResultArea || !toolResultOutput ||
+        !toolResultError || !toolExecutingMsg)
+    {
+        console.error("MCP Tester initialization failed: One or more required UI elements are missing from the DOM.");
+        document.body.innerHTML = '<p style="color: red; font-weight: bold;">Initialization Error: Required UI elements are missing. Check the console.</p>';
         return;
     }
 
-    let isConnected = false;
+    // --- Define interfaces for clarity ---
+    interface ToolParameter {
+        name: string;
+        type?: string; // e.g., 'string', 'number', 'boolean', 'array'
+        itemType?: string; // Used when type is 'array'
+        description: string;
+        required?: boolean;
+    }
 
-    // Function to add a new argument input field
+    interface ToolDefinition {
+        name: string;
+        description: string;
+        parameters?: ToolParameter[];
+    }
+    // --- End Interfaces ---
+
+    // --- State Variables ---
+    let isConnected = false; // Reflects SSE connection to backend proxy
+    let currentTools: ToolDefinition[] = [];
+    let selectedTool: ToolDefinition | null = null;
+    let eventSource: EventSource | null = null;
+    const MCP_PROXY_PATH = '/mcp-proxy'; // Path for SSE and POST requests
+
+    // --- Helper Functions ---
     function addArgumentInput(value = '') {
-        if (!argsList) return; // Guard against argsList being null
-
         const li = document.createElement('li');
         li.style.display = 'flex';
         li.style.alignItems = 'center';
         li.style.marginBottom = '5px';
 
         const input = document.createElement('input');
-        input.type = 'text';
-        input.value = value;
-        input.placeholder = 'Enter argument';
+        input.type = 'text'; input.value = value; input.placeholder = 'Enter argument';
         input.className = 'arg-input-dynamic';
-        input.style.flexGrow = '1';
-        input.style.marginRight = '5px';
-        // Apply existing input styling dynamically if needed (or rely on CSS)
-        input.style.padding = '8px';
-        input.style.border = '1px solid var(--input-border)';
-        input.style.borderRadius = '3px';
-        input.style.backgroundColor = 'var(--input-bg)';
-        input.style.color = 'var(--text-color)';
+        input.style.cssText = 'flex-grow: 1; margin-right: 5px; padding: 8px; border: 1px solid var(--input-border); border-radius: 3px; background-color: var(--input-bg); color: var(--text-color);';
 
         const removeBtn = document.createElement('button');
-        removeBtn.textContent = '-';
-        removeBtn.title = 'Remove Argument';
-        removeBtn.className = 'remove-arg-btn';
-        removeBtn.type = 'button';
-        // Apply existing button styling dynamically if needed (or rely on CSS)
-        removeBtn.style.padding = '5px 8px'; // Smaller padding for remove button
-        removeBtn.style.backgroundColor = 'var(--button-bg)';
-        removeBtn.style.color = 'var(--button-text)';
-        removeBtn.style.border = 'none';
-        removeBtn.style.borderRadius = '3px';
-        removeBtn.style.cursor = 'pointer';
-        removeBtn.style.fontSize = '0.9em';
-        removeBtn.style.lineHeight = '1';
+        removeBtn.textContent = '-'; removeBtn.title = 'Remove Argument'; removeBtn.className = 'remove-arg-btn'; removeBtn.type = 'button';
+        removeBtn.style.cssText = 'padding: 5px 8px; background-color: var(--button-bg); color: var(--button-text); border: none; border-radius: 3px; cursor: pointer; font-size: 0.9em; line-height: 1;';
+        removeBtn.addEventListener('click', () => li.remove());
 
-
-        removeBtn.addEventListener('click', () => {
-            li.remove();
-        });
-
-        li.appendChild(input);
-        li.appendChild(removeBtn);
-        argsList.appendChild(li);
-        input.focus(); // Focus the newly added input
+        li.appendChild(input); li.appendChild(removeBtn);
+        argsList!.appendChild(li);
+        input.focus();
     }
 
-    // Event listener for the Add Argument button
-    addArgBtn.addEventListener('click', () => addArgumentInput());
-
-    // Function to get all arguments from dynamic inputs
     function getAllArguments(): string[] {
-        if (!argsList) return [];
-        const inputs = argsList.querySelectorAll<HTMLInputElement>('.arg-input-dynamic');
+        const inputs = argsList!.querySelectorAll<HTMLInputElement>('.arg-input-dynamic');
         return Array.from(inputs).map(input => input.value.trim()).filter(value => value !== '');
     }
 
-    // Function to simulate testing the connection
+    // --- Core Interaction Functions ---
     const testConnection = () => {
-        // Null checks performed at top level
-        // 1. Reset status
+        // Reset UI
         isConnected = false;
-        statusIndicator.className = 'status-indicator'; // Reset to default
-        errorMessageDiv.style.display = 'none';
-        errorMessageDiv.textContent = '';
-        listToolsBtn.style.display = 'none';
+        statusIndicator!.className = 'status-indicator';
+        errorMessageDiv!.style.display = 'none'; errorMessageDiv!.textContent = '';
+        listToolsBtn!.style.display = 'none'; listToolsBtn!.disabled = true;
         toolsListArea.style.display = 'none';
-
-        // 2. Lock UI and show overlay
+        toolExecutionArea.style.display = 'none'; executeToolBtn.disabled = true;
         connectingOverlay.style.display = 'flex';
         container.classList.add('locked');
         testConnectionBtn.disabled = true;
         addArgBtn.disabled = true;
 
-        // Get current values
+        // Get config
         const transport = transportSelect.value;
         const command = commandInput.value.trim();
-        const args = getAllArguments(); // Get args using the new function
+        const args = getAllArguments();
 
-        console.log('Attempting connection with:');
-        console.log('Transport:', transport);
-        console.log('Command:', command);
-        console.log('Arguments:', args); // Log the collected args
+        console.log('Attempting SSE connection to backend proxy...');
+        console.log('Config:', { transport, command, args });
 
-        // --- Simulate asynchronous connection attempt ---
-        setTimeout(() => {
-            const isSuccess = Math.random() > 0.3; // 70% chance of success for demo
+        // Close old connection
+        if (eventSource) { eventSource.close(); eventSource = null; }
 
-            // 3. Unlock UI and hide overlay (check elements again just in case, though unlikely needed after top check)
-            if (!connectingOverlay || !container || !testConnectionBtn || !addArgBtn || !statusIndicator || !errorMessageDiv || !listToolsBtn) return;
+        // Start new connection
+        try {
+            const urlParams = new URLSearchParams({ transport, command, args: JSON.stringify(args) });
+            const sseUrl = `${MCP_PROXY_PATH}?${urlParams.toString()}`;
+            console.log('SSE URL:', sseUrl);
+            eventSource = new EventSource(sseUrl);
 
-            connectingOverlay.style.display = 'none';
-            container.classList.remove('locked');
-            testConnectionBtn.disabled = false;
-            addArgBtn.disabled = false;
+            eventSource.onopen = () => {
+                console.log('SSE connection opened.'); isConnected = true;
+                connectingOverlay.style.display = 'none'; container.classList.remove('locked');
+                testConnectionBtn.disabled = false; addArgBtn.disabled = false;
+                statusIndicator!.className = 'status-indicator connected';
+                errorMessageDiv!.style.display = 'none'; errorMessageDiv!.textContent = '';
+                listToolsBtn!.style.display = 'inline-block'; listToolsBtn!.disabled = false;
+                executeToolBtn.disabled = true; // Keep disabled until tool selected
+            };
 
-            if (isSuccess) {
-                console.log('Connection successful!');
-                isConnected = true;
-                statusIndicator.classList.add('connected'); // Green dot
-                listToolsBtn.style.display = 'inline-block';
-            } else {
-                console.error('Connection failed.');
-                isConnected = false;
-                statusIndicator.classList.add('error'); // Red dot
-                errorMessageDiv.textContent = 'Error: Failed to connect to the server. Check command and arguments.'; // Example error
-                errorMessageDiv.style.display = 'block';
-                listToolsBtn.style.display = 'none';
-            }
-        }, 2000); // Simulate a 2-second connection attempt
-        // --- End simulation ---
+            eventSource.onerror = (error) => {
+                console.error('SSE connection error:', error);
+                isConnected = false; if (eventSource) { eventSource.close(); eventSource = null; }
+                connectingOverlay.style.display = 'none'; container.classList.remove('locked');
+                testConnectionBtn.disabled = false; addArgBtn.disabled = false;
+                statusIndicator!.className = 'status-indicator error';
+                errorMessageDiv!.textContent = 'Error: SSE connection failed. Is the backend server running? Check console.';
+                errorMessageDiv!.style.display = 'block';
+                listToolsBtn!.style.display = 'none'; listToolsBtn!.disabled = true;
+                toolsListArea.style.display = 'none'; toolExecutionArea.style.display = 'none'; executeToolBtn.disabled = true;
+            };
+
+            eventSource.onmessage = (event) => {
+                console.log('SSE message received:', event.data);
+                try { handleServerMessage(JSON.parse(event.data)); }
+                catch (e) { console.error('Failed to parse SSE message:', e, 'Data:', event.data); }
+            };
+        } catch (e) {
+            console.error('Failed to initialize EventSource:', e);
+            isConnected = false;
+            connectingOverlay.style.display = 'none'; container.classList.remove('locked');
+            testConnectionBtn.disabled = false; addArgBtn.disabled = false;
+            statusIndicator!.className = 'status-indicator error';
+            errorMessageDiv!.textContent = 'Error: Could not initiate connection. Check console.';
+            errorMessageDiv!.style.display = 'block';
+            listToolsBtn!.style.display = 'none'; listToolsBtn!.disabled = true; executeToolBtn.disabled = true;
+        }
     };
 
-    // --- Function to simulate listing tools ---
-    const listTools = () => {
-        // Null checks performed at top level
+    async function sendRequestToBackend(type: string, payload: any) {
         if (!isConnected) {
-            toolsErrorMsg.textContent = 'Error: Not connected to server.';
-            toolsErrorMsg.style.display = 'block';
-            toolsListArea.style.display = 'block';
-            toolsListUl.innerHTML = '';
-            toolsLoadingMsg.style.display = 'none';
+            console.error('Cannot send request: Not connected.');
+            errorMessageDiv!.textContent = 'Error: Not connected to backend.'; errorMessageDiv!.style.display = 'block';
             return;
         }
-
-        // Show loading state
-        toolsListArea.style.display = 'block';
-        toolsListUl.innerHTML = '';
-        toolsErrorMsg.style.display = 'none';
-        toolsLoadingMsg.textContent = 'Fetching tools...';
-        toolsLoadingMsg.style.display = 'block';
-        listToolsBtn.disabled = true;
-
-        console.log('Requesting tool list...');
-
-        // Simulate async fetch
-        setTimeout(() => {
-            // Check elements again before manipulating in async callback
-             if (!toolsLoadingMsg || !listToolsBtn || !toolsErrorMsg || !toolsListUl) return;
-
-            const fetchSuccess = Math.random() > 0.2; // 80% chance of success for demo
-
-            toolsLoadingMsg.style.display = 'none';
-            listToolsBtn.disabled = false;
-
-            if (fetchSuccess) {
-                console.log('Tool list received.');
-                // Example tool data - replace with actual data from server
-                // Updated to include parameters
-                const exampleTools = [
-                    {
-                        name: 'readFile',
-                        description: 'Reads a file from the local system.',
-                        parameters: [
-                            { name: 'filePath', type: 'string', description: 'The path to the file to read.' },
-                            { name: 'encoding', type: 'string', description: '(Optional) The file encoding (e.g., utf-8).' }
-                        ]
-                    },
-                    {
-                        name: 'writeFile',
-                        description: 'Writes content to a file.',
-                        parameters: [
-                            { name: 'filePath', type: 'string', description: 'The path to the file to write.' },
-                            { name: 'content', type: 'string', description: 'The content to write.' },
-                            { name: 'encoding', type: 'string', description: '(Optional) The file encoding.' }
-                        ]
-                    },
-                    {
-                        name: 'runCommand',
-                        description: 'Executes a shell command.',
-                        parameters: [
-                            { name: 'command', type: 'string', description: 'The command to execute.' },
-                            { name: 'args', type: 'string[]', description: '(Optional) Arguments for the command.' }
-                        ]
-                    },
-                    {
-                        name: 'listFiles',
-                        description: 'Lists files in a directory.',
-                        parameters: [
-                            { name: 'directoryPath', type: 'string', description: 'The path to the directory.' }
-                        ]
-                    }
-                    // Previous format example (kept for reference):
-                    // { name: 'readFile', description: 'Reads a file from the local system.' },
-                    // { name: 'writeFile', description: 'Writes content to a file.' },
-                    // { name: 'runCommand', description: 'Executes a shell command.' },
-                    // { name: 'listFiles', description: 'Lists files in a directory.' }
-                ];
-
-                if (exampleTools.length === 0) {
-                    toolsLoadingMsg.textContent = 'No tools available on this server.';
-                    toolsLoadingMsg.style.display = 'block';
-                } else {
-                    exampleTools.forEach(tool => {
-                        const li = document.createElement('li');
-                        li.style.marginBottom = '10px'; // Add some space between tools
-
-                        // Tool Name and Description
-                        const toolInfo = document.createElement('div');
-                        toolInfo.innerHTML = `<strong>${tool.name}:</strong> ${tool.description}`;
-                        li.appendChild(toolInfo);
-
-                        // Parameters List (if any)
-                        if (tool.parameters && tool.parameters.length > 0) {
-                            const paramsUl = document.createElement('ul');
-                            paramsUl.style.marginLeft = '20px'; // Indent parameters
-                            paramsUl.style.marginTop = '5px'; // Space between tool desc and params
-                            paramsUl.style.listStyleType = 'circle'; // Use circles for sub-bullets
-
-                            tool.parameters.forEach(param => {
-                                const paramLi = document.createElement('li');
-                                paramLi.style.fontSize = '0.9em'; // Slightly smaller font for params
-                                paramLi.style.marginBottom = '3px'; // Space between params
-                                // Display Name, Type (default to 'any'), and Description
-                                paramLi.innerHTML = `<em>${param.name} (${param.type || 'any'})</em>: ${param.description}`;
-                                paramsUl.appendChild(paramLi);
-                            });
-
-                            li.appendChild(paramsUl);
-                        }
-
-                        toolsListUl.appendChild(li);
-                    });
-                }
+        console.log(`Sending '${type}' request to backend:`, payload);
+        try {
+            const response = await fetch(MCP_PROXY_PATH, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ type, payload }),
+            });
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error(`Backend request error: ${response.status}`, errorText);
+                errorMessageDiv!.textContent = `Error sending '${type}' request: ${errorText || response.statusText}`;
+                errorMessageDiv!.style.display = 'block';
             } else {
-                console.error('Failed to fetch tool list.');
-                toolsErrorMsg.textContent = 'Error: Could not retrieve tool list from the server.';
-                toolsErrorMsg.style.display = 'block';
+                console.log(`'${type}' request sent successfully.`);
+                // Clear transient errors on success
+                if (errorMessageDiv!.textContent?.startsWith("Error: Not connected")) {
+                    errorMessageDiv!.style.display = 'none'; errorMessageDiv!.textContent = '';
+                }
             }
-        }, 1500); // Simulate 1.5 second fetch time
+        } catch (error) {
+            console.error('Network error sending request:', error);
+            errorMessageDiv!.textContent = `Network error sending '${type}' request. Check console.`;
+            errorMessageDiv!.style.display = 'block';
+        }
+    }
+
+    function handleServerMessage(message: any) {
+        if (!message || !message.type) { console.warn('SSE message missing type:', message); return; }
+        console.log(`Handling message type: ${message.type}`, message.payload);
+
+        switch (message.type) {
+            case 'toolListResponse': updateToolList(message.payload.tools || []); break;
+            case 'toolExecutionResult': displayToolResult(message.payload); break;
+            case 'connectionStatus': // Update based on spawned client status
+                console.log('Client Connection status update:', message.payload);
+                if (message.payload.status === 'error') {
+                     statusIndicator!.className = 'status-indicator error';
+                     errorMessageDiv!.textContent = `Client connection error: ${message.payload.error || 'Unknown error'}`;
+                     errorMessageDiv!.style.display = 'block';
+                     listToolsBtn!.style.display = 'none'; listToolsBtn!.disabled = true;
+                     isConnected = false; // Backend proxy reported client disconnected/errored
+                     if (eventSource) { console.log("Closing SSE due to client error report."); eventSource.close(); eventSource = null; }
+                } else if (message.payload.status === 'connected') {
+                     statusIndicator!.className = 'status-indicator connected';
+                     listToolsBtn!.style.display = 'inline-block'; listToolsBtn!.disabled = false;
+                     isConnected = true;
+                }
+                break;
+            case 'logMessage': console.log('Server Log:', message.payload); break; // TODO: Log area
+            default: console.warn('Unhandled SSE message type:', message.type);
+        }
+    }
+
+    const listTools = () => {
+        toolsListArea.style.display = 'block'; toolsListUl.innerHTML = '';
+        toolsErrorMsg.style.display = 'none';
+        toolsLoadingMsg!.textContent = 'Fetching tools...'; toolsLoadingMsg!.style.display = 'block';
+        listToolsBtn!.disabled = true;
+        toolExecutionArea.style.display = 'none';
+        sendRequestToBackend('listTools', {});
     };
-    // --- End list tools function ---
 
-    // Event listener for the Test Connection button
-    // Null check performed at top level
+    function updateToolList(tools: ToolDefinition[]) {
+         console.log('Updating UI with tools:', tools);
+         toolsLoadingMsg!.style.display = 'none'; listToolsBtn!.disabled = false;
+         currentTools = tools;
+         toolsListUl!.innerHTML = ''; toolsErrorMsg!.style.display = 'none';
+
+         if (!tools || tools.length === 0) {
+            toolsLoadingMsg!.textContent = 'No tools available from the client.';
+            toolsLoadingMsg!.style.display = 'block';
+        } else {
+            tools.forEach((tool, index) => {
+                const li = document.createElement('li');
+                li.style.cssText = 'margin-bottom: 10px; cursor: pointer;';
+                li.setAttribute('data-tool-index', index.toString());
+                li.title = 'Click to select this tool';
+
+                const toolInfo = document.createElement('div');
+                toolInfo.innerHTML = `<strong>${tool.name}:</strong> ${tool.description}`;
+                li.appendChild(toolInfo);
+
+                if (tool.parameters && tool.parameters.length > 0) {
+                    const paramsUl = document.createElement('ul');
+                    paramsUl.style.cssText = 'margin-left: 20px; margin-top: 5px; list-style-type: circle;';
+                    tool.parameters.forEach((param: ToolParameter) => {
+                        const paramLi = document.createElement('li');
+                        paramLi.style.cssText = 'font-size: 0.9em; margin-bottom: 3px;';
+                        const requiredStar = param.required ? '<span style="color:red;" title="Required">*</span>' : '';
+                        paramLi.innerHTML = `<em>${param.name} (${param.type || 'any'})${requiredStar}</em>: ${param.description}`;
+                        paramsUl.appendChild(paramLi);
+                    });
+                    li.appendChild(paramsUl);
+                }
+                li.addEventListener('click', () => handleToolSelect(index));
+                toolsListUl!.appendChild(li);
+            });
+        }
+    }
+
+    const handleToolSelect = (toolIndex: number) => {
+        if (toolIndex < 0 || toolIndex >= currentTools.length) { console.error('Invalid tool index:', toolIndex); return; }
+        selectedTool = currentTools[toolIndex];
+        console.log('Selected tool:', selectedTool);
+
+        selectedToolNameSpan.textContent = selectedTool.name;
+        toolParamsForm.innerHTML = '';
+        toolResultArea.style.display = 'none'; toolResultOutput.textContent = '';
+        toolResultError.style.display = 'none'; toolResultError.textContent = '';
+        executeToolBtn.disabled = !isConnected; // Should be connected to execute
+        toolExecutingMsg.style.display = 'none';
+
+        if (selectedTool.parameters && selectedTool.parameters.length > 0) {
+            selectedTool.parameters.forEach((param: ToolParameter) => {
+                const div = document.createElement('div'); div.className = 'form-group';
+                const label = document.createElement('label');
+                const requiredStar = param.required ? '<span style="color:red;" title="Required">*</span>' : '';
+                label.innerHTML = `${param.name} (${param.type || 'any'})${requiredStar}:`;
+                label.htmlFor = `param-${param.name}`; label.title = param.description;
+
+                let inputElement: HTMLInputElement | HTMLTextAreaElement;
+                const commonStyle = 'width: 100%; padding: 8px; border: 1px solid var(--input-border); border-radius: 3px; background-color: var(--input-bg); color: var(--text-color); margin-top: 5px; box-sizing: border-box;'; // Added box-sizing
+
+                if (param.type === 'array' || (param.description || '').toLowerCase().includes('multiline')) {
+                    inputElement = document.createElement('textarea'); inputElement.rows = 3;
+                    inputElement.placeholder = `Enter ${param.type === 'array' ? 'comma-separated ' + (param.itemType || 'string') + 's' : 'value'}...
+${param.description}`;
+                } else {
+                    inputElement = document.createElement('input');
+                    inputElement.type = (param.type === 'number') ? 'number' : 'text';
+                    inputElement.placeholder = `Enter ${param.name}... (${param.description})`;
+                }
+                inputElement.id = `param-${param.name}`; inputElement.name = param.name;
+                inputElement.required = param.required || false;
+                inputElement.style.cssText = commonStyle;
+
+                div.appendChild(label); div.appendChild(inputElement);
+                toolParamsForm.appendChild(div);
+            });
+        } else {
+            toolParamsForm.innerHTML = '<p><em>This tool takes no parameters.</em></p>';
+        }
+        toolExecutionArea.style.display = 'block';
+        toolExecutionArea.scrollIntoView({ behavior: 'smooth' });
+    };
+
+    const executeTool = () => {
+        if (!selectedTool) { console.error("Execute error: No tool selected."); return; }
+        if (!isConnected) {
+             errorMessageDiv!.textContent = 'Error: Not connected. Cannot execute tool.'; errorMessageDiv!.style.display = 'block';
+             console.error("Execute error: Not connected."); return;
+        }
+        if (!toolParamsForm.checkValidity()) { toolParamsForm.reportValidity(); return; }
+
+        toolResultArea.style.display = 'none'; toolResultOutput.textContent = '';
+        toolResultError.style.display = 'none'; toolResultError.textContent = '';
+        toolExecutingMsg.style.display = 'block'; executeToolBtn.disabled = true;
+
+        const formData = new FormData(toolParamsForm);
+        const params: { [key: string]: any } = {};
+        selectedTool.parameters?.forEach((param: ToolParameter) => {
+            const value = formData.get(param.name) as string | null;
+            if (value !== null && value !== '') { // Only include params with values
+                 if (param.type === 'number') { params[param.name] = parseFloat(value); }
+                 else if (param.type === 'boolean') { params[param.name] = value.toLowerCase() === 'true'; }
+                 else if (param.type === 'array') { params[param.name] = value.split(',').map(s => s.trim()); }
+                 else { params[param.name] = value; }
+            }
+        });
+
+        sendRequestToBackend('executeTool', { toolName: selectedTool.name, params });
+    };
+
+    function displayToolResult(result: any) {
+        console.log('Displaying tool result:', result);
+        toolExecutingMsg!.style.display = 'none'; executeToolBtn!.disabled = !isConnected; // Re-enable button only if still connected
+        toolResultArea!.style.display = 'block';
+
+        if (result.status === 'success') {
+            let outputData = '';
+            if (typeof result.data === 'object' && result.data !== null) {
+                try { outputData = JSON.stringify(result.data, null, 2); } catch { outputData = String(result.data); }
+            } else { outputData = String(result.data ?? ''); }
+            toolResultOutput!.textContent = outputData;
+            toolResultError!.style.display = 'none'; toolResultError!.textContent = '';
+        } else {
+            toolResultOutput!.textContent = '';
+            toolResultError!.textContent = `Error: ${result.message || 'Execution failed'}`;
+            let detailsString = '';
+            if (result.details) {
+                if (typeof result.details === 'object') { try { detailsString = JSON.stringify(result.details, null, 2); } catch { detailsString = String(result.details); } } // Pretty print details too
+                else { detailsString = String(result.details); }
+                toolResultError!.textContent += `
+Details: ${detailsString}`;
+            }
+            toolResultError!.style.display = 'block';
+        }
+        toolResultArea!.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    // --- Event Listeners ---
+    addArgBtn.addEventListener('click', () => addArgumentInput());
     testConnectionBtn.addEventListener('click', testConnection);
-
-    // Event listener for the List Tools button
-    // Null check performed at top level
     listToolsBtn.addEventListener('click', listTools);
-});
+    executeToolBtn.addEventListener('click', executeTool);
+    toolParamsForm.addEventListener('submit', (e) => { e.preventDefault(); executeTool(); });
 
-console.log("MCP Tester script loaded."); // Example placeholder 
+    // --- Initial State --- (e.g., disable buttons)
+    listToolsBtn.disabled = true;
+    executeToolBtn.disabled = true;
+
+    console.log("MCP Tester script loaded and initialized.");
+}); 

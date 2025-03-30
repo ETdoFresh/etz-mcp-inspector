@@ -12,20 +12,22 @@
         <h2>MCP Server Configuration</h2>
 
         <div class="form-group">
-            <label for="transport">Transport:</label>
+            <label for="transport">Client-Server Transport:</label>
             <select id="transport" name="transport">
-                <option value="STDIO" selected>STDIO (default)</option>
+                <option value="STDIO" selected>STDIO</option>
                 <option value="SSE">SSE</option>
             </select>
+            <small style="margin-left: 10px;">(How the spawned client connects to the target server)</small>
         </div>
 
         <div class="form-group">
-            <label for="command">Command:</label>
-            <input type="text" id="command" name="command" placeholder="e.g., npx my-mcp-server">
+            <label for="command">Client Command:</label>
+            <input type="text" id="command" name="command" placeholder="e.g., npx my-mcp-client">
+            <small style="margin-left: 10px;">(Command to spawn the MCP client process)</small>
         </div>
 
         <div class="form-group">
-            <label for="arg-input">Arguments:</label>
+            <label for="arg-input">Client Arguments:</label>
             <button id="add-arg-btn" title="Add Argument">+</button>
             <ul id="args-list">
                 <!-- Dynamically added arguments will appear here -->
@@ -48,6 +50,22 @@
             <div id="tools-loading-message" style="font-style: italic; color: #555;"></div>
             <div id="tools-error-message" class="error-message"></div>
         </div>
+
+        <!-- Add the missing Tool Execution Area -->
+        <div id="tool-execution-area" style="margin-top: 20px; display: none; border-top: 1px solid var(--border-color); padding-top: 15px;">
+            <h4>Execute Tool: <span id="selected-tool-name"></span></h4>
+            <form id="tool-params-form">
+                <!-- Dynamically added parameter inputs will appear here -->
+            </form>
+            <button id="execute-tool-btn" style="margin-top: 10px;">Execute</button>
+            <div id="tool-result-area" style="margin-top: 15px; display: none;">
+                <h5>Result:</h5>
+                <pre id="tool-result-output"></pre>
+                <div id="tool-result-error" class="error-message"></div>
+            </div>
+             <div id="tool-executing-message" style="font-style: italic; color: #555; display: none; margin-top: 10px;">Executing...</div>
+        </div>
+        <!-- End Tool Execution Area -->
 
         <div id="connecting-overlay" class="connecting-overlay" style="display: none;">Connecting...</div>
 
