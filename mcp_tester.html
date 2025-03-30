@@ -148,14 +148,21 @@
         <div class="form-group">
             <button id="test-connection-btn">Test Connection</button>
             <span id="status-indicator" class="status-indicator"></span>
+            <button id="list-tools-btn" style="display: none; margin-left: 10px;">List Tools</button>
         </div>
 
         <div id="error-message" class="error-message">
             <!-- Error messages will appear here -->
         </div>
 
-        <!-- Overlay for connecting state -->
-         <div id="connecting-overlay" class="connecting-overlay" style="display: none;">Connecting...</div>
+        <div id="tools-list-area" style="margin-top: 15px; display: none;">
+            <h4>Available Tools:</h4>
+            <ul id="tools-list"></ul>
+            <div id="tools-loading-message" style="font-style: italic; color: #555;"></div>
+            <div id="tools-error-message" class="error-message"></div>
+        </div>
+
+        <div id="connecting-overlay" class="connecting-overlay" style="display: none;">Connecting...</div>
 
     </div>
 
