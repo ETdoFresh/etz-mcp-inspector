@@ -1,4 +1,4 @@
-import './theme-toggle';
+import './views/theme-toggle';
 
 const message: string = "Hello World";
 

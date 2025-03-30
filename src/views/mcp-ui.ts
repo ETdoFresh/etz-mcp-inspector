@@ -1,24 +1,8 @@
 // src/mcp-ui.ts
+import { UIToolDefinition } from '../models/tool-definition.model';
+import { McpUIActions } from '../controllers/mcp.controller';
 
-// Define the structure for tool definitions needed by the UI
-// (Could be shared in a types file later)
-export interface UIToolDefinition {
-    name: string;
-    description: string;
-    inputSchema?: any; // Keeping schema handling logic within UI for now
-}
-
-// Define the structure for callbacks the UI needs to trigger actions
-export interface McpUIActions {
-    onAddArgument: () => void;
-    onTestConnection: (args: string[]) => void; // Passes current args
-    onListTools: () => void;
-    onExecuteTool: (params: { [key: string]: any }) => void;
-    onToolSelected: (toolIndex: number) => void; // To notify the orchestrator
-    onArgumentInputChange: () => string[]; // Callback to get current args for saving
-}
-
-export class McpUIController {
+export class McpUIView {
     // --- UI Elements --- Declare properties
     private transportSelect: HTMLSelectElement;
     private commandInput: HTMLInputElement;
@@ -163,6 +147,10 @@ export class McpUIController {
     public getAllArguments(): string[] {
         const inputs = this.argsList.querySelectorAll<HTMLInputElement>('.arg-input-dynamic');
         return Array.from(inputs).map(input => input.value.trim()).filter(value => value !== '');
+    }
+
+    public getSelectedToolName(): string | null {
+        return this.selectedTool ? this.selectedTool.name : null;
     }
 
     // --- Setters for Configuration (e.g., from localStorage by orchestrator) ---
@@ -753,4 +741,4 @@ export class McpUIController {
 }
 
 // Note: No instantiation or error handling here. Orchestrator (mcp_tester.ts) handles it.
-console.log("McpUIController class defined."); 
+console.log("McpUIView class defined."); 

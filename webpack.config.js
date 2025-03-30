@@ -1,7 +1,7 @@
 const path = require('path');
 const fs = require('fs'); // Require the file system module
 const HtmlWebpackPlugin = require('html-webpack-plugin');
-const { mcpProxyHandler } = require('./src/mcp_proxy_handler.js'); // Import the JS handler
+const { mcpProxyHandler } = require('./src/mcp_proxy_handler.js'); // Revert to .js
 
 // Define your entry points
 const entryPoints = {

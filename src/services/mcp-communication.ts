@@ -1,23 +1,11 @@
 // src/mcp-communication.ts
+import { McpMessagePayload } from '../models/mcp-message-payload.model';
 
 // Define the structure for connection configuration
 export interface McpConnectionConfig {
     transport: string;
     command: string;
     args: string[];
-}
-
-// Define the structure for messages received from the MCP process via the proxy
-export interface McpMessagePayload {
-    id?: string | number; // Optional ID for JSON-RPC correlation
-    result?: any;
-    error?: {
-        message: string;
-        data?: any;
-        code?: number;
-    };
-    method?: string; // For notifications
-    params?: any;
 }
 
 // Define the structure for callbacks that the communicator will use to signal events
@@ -32,7 +20,7 @@ export interface McpCommunicationCallbacks {
     // onCommandError: (commandType: string, error: string) => void;
 }
 
-export class McpCommunicator {
+export class McpCommunicationService {
     private eventSource: EventSource | null = null;
     private isConnectedState: boolean = false;
     private readonly MCP_PROXY_PATH = '/mcp-proxy'; // Path for SSE and POST requests
