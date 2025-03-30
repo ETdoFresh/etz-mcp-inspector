@@ -10,6 +10,11 @@ export enum LogLevel {
 }
 
 /**
+ * Defines the signature for a function that forwards log messages.
+ */
+export type ForwardLogFunction = (consoleLog: (message: string) => void, message: string) => void;
+
+/**
  * A service for logging messages with different levels and tags.
  * For now, it logs directly to the console.
  */
@@ -17,75 +22,82 @@ export class Logger {
   // Placeholder for potential future filtering logic
   private currentLevel: LogLevel = LogLevel.Debug; // Default to show all logs
 
-  private log(level: LogLevel, message: string, tags: string[]): void {
-    if (level <= this.currentLevel) {
-      // Format with tags first, no level string
-      const tagPrefix = tags.length > 0 ? `[${tags.join(', ')}] ` : '';
-      const output = `${tagPrefix}${message}`;
-
-      switch (level) {
-        case LogLevel.Fatal:
-        case LogLevel.Error:
-          console.error(output);
-          break;
-        case LogLevel.Warning:
-          console.warn(output);
-          break;
-        case LogLevel.Info:
-          console.info(output);
-          break;
-        case LogLevel.Debug:
-        default:
-          console.debug(output); // console.debug might not show in all browser consoles by default
-          // Or use console.log(output);
-          break;
-      }
+  /**
+   * Logs a fatal message.
+   * @param forwardLogFunction Function to forward the log call.
+   * @param message The message to log.
+   * @param tags Optional tags for filtering.
+   */
+  public LogFatal(forwardLogFunction: ForwardLogFunction, message: string, ...tags: string[]): void {
+    if (LogLevel.Fatal <= this.currentLevel) {
+        const tagPrefix = tags.length > 0 ? `[${tags.join(', ')}] ` : '';
+        const output = `${tagPrefix}${message}`;
+        forwardLogFunction(console.error, output);
     }
   }
 
   /**
-   * Logs a fatal message.
-   * @param message The message to log.
-   * @param tags Optional tags for filtering.
-   */
-  public LogFatal(message: string, ...tags: string[]): void {
-    this.log(LogLevel.Fatal, message, tags);
-  }
-
-  /**
    * Logs an error message.
+   * @param forwardLogFunction Function to forward the log call.
    * @param message The message to log.
    * @param tags Optional tags for filtering.
    */
-  public LogError(message: string, ...tags: string[]): void {
-    this.log(LogLevel.Error, message, tags);
+  public LogError(forwardLogFunction: ForwardLogFunction, message: string, ...tags: string[]): void {
+    if (LogLevel.Error <= this.currentLevel) {
+        const tagPrefix = tags.length > 0 ? `[${tags.join(', ')}] ` : '';
+        const output = `${tagPrefix}${message}`;
+        forwardLogFunction(console.error, output);
+    }
   }
 
   /**
    * Logs a warning message.
+   * @param forwardLogFunction Function to forward the log call.
    * @param message The message to log.
    * @param tags Optional tags for filtering.
    */
-  public LogWarning(message: string, ...tags: string[]): void {
-    this.log(LogLevel.Warning, message, tags);
+  public LogWarning(forwardLogFunction: ForwardLogFunction, message: string, ...tags: string[]): void {
+    if (LogLevel.Warning <= this.currentLevel) {
+        const tagPrefix = tags.length > 0 ? `[${tags.join(', ')}] ` : '';
+        const output = `${tagPrefix}${message}`;
+        forwardLogFunction(console.warn, output);
+    }
   }
 
   /**
    * Logs an informational message.
+   * @param forwardLogFunction Function to forward the log call.
    * @param message The message to log.
    * @param tags Optional tags for filtering.
    */
-  public LogInfo(message: string, ...tags: string[]): void {
-    this.log(LogLevel.Info, message, tags);
+  public LogInfo(forwardLogFunction: ForwardLogFunction, message: string, ...tags: string[]): void {
+    if (LogLevel.Info <= this.currentLevel) {
+        const tagPrefix = tags.length > 0 ? `[${tags.join(', ')}] ` : '';
+        const output = `${tagPrefix}${message}`;
+        forwardLogFunction(console.info, output);
+    }
+  }
+
+  public LogTest(forwardLogFunction: ForwardLogFunction, message: string, ...tags: string[]): void {
+    // Keep LogTest as is, or potentially align it with others if needed for consistency
+    // For now, assuming it might have specific test behavior
+    const tagPrefix = tags.length > 0 ? `[${tags.join(', ')}] ` : '';
+    const output = `${tagPrefix}${message}`;
+    forwardLogFunction(console.log, output); // Use console.log for test messages
   }
 
   /**
    * Logs a debug message.
+   * @param forwardLogFunction Function to forward the log call.
    * @param message The message to log.
    * @param tags Optional tags for filtering.
    */
-  public LogDebug(message: string, ...tags: string[]): void {
-    this.log(LogLevel.Debug, message, tags);
+  public LogDebug(forwardLogFunction: ForwardLogFunction, message: string, ...tags: string[]): void {
+     if (LogLevel.Debug <= this.currentLevel) {
+        const tagPrefix = tags.length > 0 ? `[${tags.join(', ')}] ` : '';
+        const output = `${tagPrefix}${message}`;
+        forwardLogFunction(console.debug, output);
+    }
   }
 
   /**
@@ -98,7 +110,8 @@ export class Logger {
     // Use the logger itself for this message, applying the new format
     // Avoid logging if the new level would prevent this message from showing
     if (LogLevel.Info <= this.currentLevel || LogLevel.Info <= oldLevel) {
-        this.LogInfo(`Log level set to ${LogLevel[level]} (${level})`);
+        // Add the forward function here as well
+        this.LogInfo((a,b) => a(b), `Log level set to ${LogLevel[level]} (${level})`);
     }
   }
 }

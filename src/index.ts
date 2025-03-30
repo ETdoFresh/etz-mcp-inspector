@@ -1,6 +1,6 @@
 import './views/theme-toggle';
 import { ApplicationServiceProvider } from './services/application-service-provider';
-import { Logger } from './services/logger-service';
+import { Logger, LogLevel } from './services/logger-service';
 
 const message: string = "Hello World";
 
@@ -9,5 +9,9 @@ if (appDiv) {
     appDiv.innerHTML = `<h1>${message}</h1>`;
 }
 
-const logger = ApplicationServiceProvider.getService(Logger);
-logger?.LogInfo("Index script loaded.", "Index", "Scripting"); 
+// Removed Logger initialization - It's now handled in mcp_tester.ts
+
+// Optional: Keep a logger call here if index.ts performs other logic
+// But ensure mcp_tester.ts (or wherever registration happens) runs first.
+// const logger = ApplicationServiceProvider.getService(Logger);
+// logger?.LogDebug((a, b) => a(b), "Index script finished basic setup.", "Index", "Scripting"); 

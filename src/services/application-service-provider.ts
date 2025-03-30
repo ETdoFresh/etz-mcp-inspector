@@ -32,7 +32,9 @@ export class ApplicationServiceProvider {
           this.internalLogger = instance as Logger;
           // Optionally set a specific log level for the provider itself
           // this.internalLogger.setLogLevel(LogLevel.Info);
-          this.internalLogger.LogInfo("ApplicationServiceProvider internal logger initialized.", "ServiceProvider", "Initialization");
+          this.internalLogger.LogTest((a,b) => a(b), "ApplicationServiceProvider internal logger initialized.", "ServiceProvider", "Initialization");
+          // Update this line if it was uncommented
+          // this.internalLogger.LogInfo((a,b) => a(b), "ApplicationServiceProvider internal logger initialized.", "ServiceProvider", "Initialization");
         }
     }
 
@@ -65,7 +67,7 @@ export class ApplicationServiceProvider {
     private static logInfo(message: string, ...tags: string[]) {
       if (this.internalLogger) {
         // Always add the ServiceProvider tag internally
-        this.internalLogger.LogInfo(message, "ServiceProvider", ...tags);
+        this.internalLogger.LogInfo((a,b) => a(b), message, "ServiceProvider", ...tags);
       } else {
         // Fallback before logger is registered
         const tagString = tags.length > 0 ? `, ${tags.join(', ')}` : '';
@@ -75,7 +77,7 @@ export class ApplicationServiceProvider {
 
     private static logWarning(message: string, ...tags: string[]) {
       if (this.internalLogger) {
-        this.internalLogger.LogWarning(message, "ServiceProvider", ...tags);
+        this.internalLogger.LogWarning((a,b) => a(b), message, "ServiceProvider", ...tags);
       } else {
         // Fallback before logger is registered
         const tagString = tags.length > 0 ? `, ${tags.join(', ')}` : '';

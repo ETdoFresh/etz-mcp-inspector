@@ -213,17 +213,17 @@ export class McpUIView {
     }
 
     public showConnected(isConnected: boolean): void {
-        this.logger?.LogDebug(`showConnected called with isConnected: ${isConnected}`, "UI", "View", "State");
+        this.logger?.LogDebug((a, b) => a(b), `showConnected called with isConnected: ${isConnected}`, "UI", "View", "State");
         this.connectingOverlay.style.display = 'none'; // Hide overlay
         this.container.classList.remove('locked'); // Unlock container
         this.testConnectionBtn.disabled = false; // Enable connection button
         this.addArgBtn.disabled = false; // Enable arg button
         this.enableArgumentInputs(); // Enable arg inputs
 
-        this.logger?.LogDebug(`Current statusIndicator className BEFORE change: ${this.statusIndicator.className}`, "UI", "View", "State");
+        this.logger?.LogDebug((a, b) => a(b), `Current statusIndicator className BEFORE change: ${this.statusIndicator.className}`, "UI", "View", "State");
         if (isConnected) {
             this.statusIndicator.className = 'status-indicator connected';
-            this.logger?.LogDebug(`Set statusIndicator className to: ${this.statusIndicator.className}`, "UI", "View", "State");
+            this.logger?.LogDebug((a, b) => a(b), `Set statusIndicator className to: ${this.statusIndicator.className}`, "UI", "View", "State");
             // Clear transient connection errors if they were displayed
             if (this.errorMessageDiv.textContent?.includes('connection failed') || this.errorMessageDiv.textContent?.includes('Could not initiate')) {
                 this.errorMessageDiv.style.display = 'none';
@@ -236,7 +236,7 @@ export class McpUIView {
         } else {
             // This block shouldn't run when called with `true`
             this.statusIndicator.className = 'status-indicator error'; // Show error status
-            this.logger?.LogDebug(`Set statusIndicator className to (error state): ${this.statusIndicator.className}`, "UI", "View", "State");
+            this.logger?.LogDebug((a, b) => a(b), `Set statusIndicator className to (error state): ${this.statusIndicator.className}`, "UI", "View", "State");
         }
         this.isListingToolsState = false; // Reset listing state
     }
@@ -289,7 +289,7 @@ export class McpUIView {
     }
 
      public showLogMessage(source: string, content: string): void {
-         this.logger?.LogInfo(`Log from MCP [${source}]: ${content}`, "UI", "View", "MCPLog", source); // Replaced console.log
+         this.logger?.LogInfo((a, b) => a(b), `Log from MCP [${source}]: ${content}`, "UI", "View", "MCPLog", source); // Replaced console.log
          // Optional: Display logs in a dedicated area in the UI
          if (source === 'stderr') {
              // Create a new element for the log entry
@@ -434,11 +434,11 @@ export class McpUIView {
     // Called when a tool <li> element is clicked
     private handleToolSelect(toolIndex: number): void {
         if (toolIndex < 0 || toolIndex >= this.currentTools.length) {
-            this.logger?.LogError(`Invalid tool index selected in UI: ${toolIndex}`, "UI", "View", "ToolSelection"); // Replaced console.error
+            this.logger?.LogError((a, b) => a(b), `Invalid tool index selected in UI: ${toolIndex}`, "UI", "View", "ToolSelection"); // Replaced console.error
             return;
         }
         this.selectedTool = this.currentTools[toolIndex]; // Update internal selected tool state
-        this.logger?.LogDebug(`Selected tool: ${this.selectedTool.name}`, "UI", "View", "ToolSelection"); // Replaced console.log (use Debug level)
+        this.logger?.LogDebug((a, b) => a(b), `Selected tool: ${this.selectedTool.name}`, "UI", "View", "ToolSelection"); // Replaced console.log (use Debug level)
 
         // Notify the orchestrator about the selection
         this.actions?.onToolSelected(toolIndex);
@@ -482,7 +482,7 @@ export class McpUIView {
             }
         } else {
             // Handle cases where schema is missing, not an object, or has no properties
-            this.logger?.LogWarning(`Tool schema is not valid or missing properties. Cannot render form.`, "UI", "View", "ToolForm"); // Replaced console.warn
+            this.logger?.LogWarning((a, b) => a(b), `Tool schema is not valid or missing properties. Cannot render form.`, "UI", "View", "ToolForm"); // Replaced console.warn
              this.toolParamsForm.innerHTML = '<p><em>This tool takes no defined parameters.</em></p>';
         }
     }
@@ -558,7 +558,7 @@ export class McpUIView {
     // Internal handler called by execute button click or form submission
     private handleExecuteTool(): void {
         if (!this.selectedTool) { 
-            this.logger?.LogError("Execute error: No tool selected.", "UI", "View", "ToolExecution"); // Replaced console.error
+            this.logger?.LogError((a, b) => a(b), "Execute error: No tool selected.", "UI", "View", "ToolExecution"); // Replaced console.error
             return; 
         }
 
@@ -593,7 +593,7 @@ export class McpUIView {
                             if (!isNaN(numValue)) { // Ensure conversion is valid
                                 params[paramName] = numValue;
                             } else {
-                                this.logger?.LogWarning(`Invalid number input for ${paramName}: '${value}'. Skipping parameter.`, "UI", "View", "ToolExecution", "InputValidation"); // Replaced console.warn
+                                this.logger?.LogWarning((a, b) => a(b), `Invalid number input for ${paramName}: '${value}'. Skipping parameter.`, "UI", "View", "ToolExecution", "InputValidation"); // Replaced console.warn
                                 // Optionally show an error to the user here instead of just console warning
                             }
                         } else if (paramType === 'boolean') {
@@ -621,7 +621,7 @@ export class McpUIView {
                         }
                     } catch (e: unknown) { // Catch unknown for better type safety
                         const errorMsg = e instanceof Error ? e.message : String(e);
-                        this.logger?.LogError(`Error processing parameter ${paramName} with value '${value}': ${errorMsg}`, "UI", "View", "ToolExecution", "InputProcessing"); // Replaced console.error
+                        this.logger?.LogError((a, b) => a(b), `Error processing parameter ${paramName} with value '${value}': ${errorMsg}`, "UI", "View", "ToolExecution", "InputProcessing"); // Replaced console.error
                         // Optionally show an error to the user
                         this.showError(`Error processing parameter ${paramName}. Check logs.`, false);
                     }
@@ -631,7 +631,7 @@ export class McpUIView {
             });
         } else {
              // This case should ideally not happen if a tool was selected, but log it.
-             this.logger?.LogWarning(`Cannot collect parameters: Tool inputSchema is missing or invalid.`, "UI", "View", "ToolExecution"); // Replaced console.warn
+             this.logger?.LogWarning((a, b) => a(b), `Cannot collect parameters: Tool inputSchema is missing or invalid.`, "UI", "View", "ToolExecution"); // Replaced console.warn
         }
 
         // Notify the orchestrator to actually execute the tool with the collected params

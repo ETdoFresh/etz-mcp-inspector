@@ -5,24 +5,31 @@ import { Logger, LogLevel } from './services/logger-service';
 
 document.addEventListener('DOMContentLoaded', () => {
     // --- Logger Initialization ---
-    const logger = new Logger();
+    const loggerInstance = new Logger();
     // Set desired initial log level (e.g., Debug for development)
-    logger.setLogLevel(LogLevel.Debug);
-    ApplicationServiceProvider.registerService(Logger, logger);
+    loggerInstance.setLogLevel(LogLevel.Debug);
+    ApplicationServiceProvider.registerService(Logger, loggerInstance);
     // --- End Logger Initialization ---
 
-    logger.LogInfo("DOM Loaded. Initializing MCP Application...", "Application", "Initialization");
+    // Now get the registered logger
+    const logger = ApplicationServiceProvider.getService(Logger);
+    if (!logger) {
+        // This fallback should ideally not be needed anymore, but kept as safety
+        console.error("Logger service could not be initialized or retrieved! Cannot initialize application.");
+        return;
+    }
+    logger.LogInfo((a, b) => a(b), "DOM Loaded. Initializing MCP Application...", "Application", "Initialization");
 
     try {
         // Instantiate the main controller - it handles initializing the view and service
         new McpController();
-        logger.LogInfo("MCP Application initialized successfully.", "Application", "Initialization");
+        logger.LogInfo((a, b) => a(b), "MCP Application initialized successfully.", "Application", "Initialization");
     } catch (error: any) {
         // Log the error using the logger
-        logger.LogError(`Failed to initialize MCP Application: ${error.message}`, "Application", "Initialization", "Fatal");
+        logger.LogError((a, b) => a(b), `Failed to initialize MCP Application: ${error.message}`, "Application", "Initialization", "Fatal");
         // Also log the stack trace if available
         if (error.stack) {
-            logger.LogError(`Stack trace: ${error.stack}`, "Application", "Initialization", "Fatal");
+            logger.LogError((a, b) => a(b), `Stack trace: ${error.stack}`, "Application", "Initialization", "Fatal");
         }
 
         // Display a fallback error message if controller initialization fails catastrophically
