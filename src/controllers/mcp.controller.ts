@@ -19,9 +19,10 @@ export interface McpUIActions {
     // New Server Actions
     onAddServer: () => void; // User clicked '+'
     onSaveServer: (config: McpServerConfig) => void; // User clicked 'Save Server'
-    onSelectServer: (serverId: string) => void; // User clicked a server item
+    onSelectServer: (serverId: string | null) => void; // User clicked a server item or null to clear
     onDeleteServer: (serverId: string) => void; // User clicked delete on a server item
     onConfigInputChange: () => void; // User changed name, transport, command, or args
+    onConnectServer: (serverId: string) => void; // User clicked connect button
 }
 
 export class McpController implements McpUIActions, McpCommunicationCallbacks {
@@ -111,24 +112,31 @@ export class McpController implements McpUIActions, McpCommunicationCallbacks {
     }
 
     // Called when user clicks on a server item in the list (or the Edit button)
-    onSelectServer(serverId: string): void {
-        this.logger?.LogDebug((a, b) => a(b), `onSelectServer triggered for ID: ${serverId}`, "Controller", "Action", "UIEvent");
-        const server = this.servers.find(s => s.id === serverId);
-        if (!server) {
-            this.logger?.LogError((a, b) => a(b), `Selected server ID ${serverId} not found in list!`, "Controller", "ServerManagement", "Error");
+    onSelectServer(serverId: string | null): void {
+        this.logger?.LogDebug((a,b)=>a(b), `Server selection changed to: ${serverId}`, "Controller", "ServerSelection");
+
+        // If clicking the same server again, hide the form and clear selection
+        if (serverId === this.currentSelectedServerId) {
+            this.view.hideServerForm();
+            this.currentSelectedServerId = null;
+            this.view.setSelectedServer(null);
             return;
         }
 
-        if (this.currentSelectedServerId !== serverId) {
-             this.disconnectCurrent(); // Disconnect if switching servers
-             this.currentSelectedServerId = serverId;
-             this.view.setSelectedServer(serverId); // Update view selection
-             this.view.populateServerForm(server); // Load selected server data into form
-             this.view.clearToolListAndExecution(); // Clear columns 2 & 3
-             this.saveLastSelectedServerId(serverId);
+        // Otherwise, proceed with normal selection
+        if (serverId) {
+            const server = this.servers.find(s => s.id === serverId);
+            if (server) {
+                this.view.populateServerForm(server);
+                this.view.setSelectedServer(serverId);
+                this.currentSelectedServerId = serverId;
+            } else {
+                this.logger?.LogError(log => log(serverId), `Server not found: ${serverId}`, "Controller", "ServerSelection");
+            }
         } else {
-            // Clicking the already selected server - ensure form is populated
-            this.view.populateServerForm(server);
+            this.view.clearServerForm();
+            this.view.setSelectedServer(null);
+            this.currentSelectedServerId = null;
         }
     }
 
@@ -250,27 +258,64 @@ export class McpController implements McpUIActions, McpCommunicationCallbacks {
         this.logger?.LogDebug((a, b) => a(b), "Added new environment variable input", "Controller", "Action", "UIEvent");
     }
 
+    // Called when user clicks the Connect button on a server item
+    onConnectServer(serverId: string): void {
+        this.logger?.LogInfo((a, b) => a(b), `onConnectServer triggered for ID: ${serverId}`, "Controller", "Action", "UIEvent");
+        const server = this.servers.find(s => s.id === serverId);
+        if (!server) {
+            this.logger?.LogError((a, b) => a(b), `Server ID ${serverId} not found in list!`, "Controller", "ServerManagement", "Error");
+            return;
+        }
+
+        // If already connected to this server, do nothing
+        if (this.currentSelectedServerId === serverId && this.isConnectedToServer) {
+            return;
+        }
+
+        // If connected to a different server, disconnect first
+        if (this.isConnectedToServer) {
+            this.disconnectCurrent();
+        }
+
+        // Update UI to show connecting state
+        this.view.updateServerConnectionState(serverId, 'connecting');
+        this.currentSelectedServerId = serverId;
+        this.view.setSelectedServer(serverId);
+
+        // Get the current server configuration
+        const config: McpConnectionConfig = {
+            transport: server.transport,
+            command: server.command,
+            args: server.args,
+            env: server.env
+        };
+
+        // Attempt to connect
+        this.communicationService.connect(config, this);
+    }
+
     // --- Implementation of McpCommunicationCallbacks ---
 
     onConnecting(): void {
-        this.logger?.LogInfo((a, b) => a(b), "Service is connecting...", "Controller", "Callback", "CommunicationState");
-        // View already handles showing overlay via showConnecting
-        // this.view.showConnecting();
+        // Already handled by updateServerConnectionState
     }
 
     onConnected(): void {
-        this.logger?.LogInfo((a, b) => a(b), "Service connected.", "Controller", "Callback", "CommunicationState");
         this.isConnectedToServer = true;
-        this.view.showConnected(true);
+        if (this.currentSelectedServerId) {
+            this.view.updateServerConnectionState(this.currentSelectedServerId, 'connected');
+            this.view.showConnected(true);
+            this.logger?.LogInfo((a, b) => a(b), `Successfully connected to server: ${this.currentSelectedServerId}`, "Controller", "Connection");
+        }
     }
 
     onDisconnected(code?: number | string): void {
-        this.logger?.LogInfo((a, b) => a(b), `Service disconnected. Code: ${code ?? 'N/A'}`, "Controller", "Callback", "CommunicationState");
         this.isConnectedToServer = false;
-        this.pendingRequestType = null; // Reset pending request on disconnect
-        this.view.showConnected(false); // Update status indicator and disable tool button
-        // View handles clearing tool areas
-        // this.view.showError(`Disconnected (Code: ${code})`, false); // Let view handle this message
+        if (this.currentSelectedServerId) {
+            this.view.updateServerConnectionState(this.currentSelectedServerId, 'disconnected');
+            this.view.showConnected(false);
+            this.logger?.LogInfo((a, b) => a(b), `Disconnected from server: ${this.currentSelectedServerId} (Code: ${code ?? 'N/A'})`, "Controller", "Connection");
+        }
     }
 
     onError(error: string, isConnectionError: boolean): void {

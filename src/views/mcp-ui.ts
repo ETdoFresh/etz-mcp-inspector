@@ -114,7 +114,14 @@ export class McpUIView {
         if (!this.actions) return;
 
         // --- Column 1 Listeners ---
-        this.addServerBtn.addEventListener('click', () => this.actions!.onAddServer());
+        this.addServerBtn.addEventListener('click', () => {
+            // If form is visible and no server is selected, hide it
+            if (this.connectionDetailsDiv.style.display !== 'none' && !this.currentSelectedServerId) {
+                this.connectionDetailsDiv.style.display = 'none';
+            } else {
+                this.actions!.onAddServer();
+            }
+        });
         this.addArgBtn.addEventListener('click', () => this.actions!.onAddArgument());
         this.addEnvBtn.addEventListener('click', () => this.actions!.onAddEnvVar());
 
@@ -147,8 +154,6 @@ export class McpUIView {
             } else if (target.classList.contains('edit-btn')) {
                  event.stopPropagation();
                  this.actions!.onSelectServer(serverId);
-            } else {
-                this.actions!.onSelectServer(serverId);
             }
         });
 
@@ -346,10 +351,12 @@ export class McpUIView {
         if (isConnected) {
             this.statusIndicator.className = 'status-indicator connected';
             this.listToolsBtn.disabled = false;
+            this.listToolsBtn.style.display = 'block'; // Show the list tools button
             this.clearError('col1'); // Clear connection-related errors
         } else {
             this.statusIndicator.className = 'status-indicator error';
             this.listToolsBtn.disabled = true;
+            this.listToolsBtn.style.display = 'none'; // Hide the list tools button
             this.clearToolListAndExecution(); // Clear cols 2/3 on disconnect/failure
         }
         this.testConnectionBtn.disabled = !this.currentSelectedServerId;
@@ -848,60 +855,79 @@ export class McpUIView {
             li.style.fontStyle = 'italic';
             this.serverListUl.appendChild(li);
             this.connectionDetailsDiv.style.display = 'none'; // Hide details if no servers
-        } else {
-             servers.forEach(server => {
-                const li = document.createElement('li');
-                li.classList.add('server-item', 'list-group-item', 'd-flex', 'justify-content-between', 'align-items-center');
-                li.setAttribute('data-server-id', server.id);
-                li.style.cursor = 'pointer'; // Indicate clickable
-                li.tabIndex = 0; // Make it focusable
+        }
 
-                const nameSpan = document.createElement('span');
-                nameSpan.textContent = server.name;
-                nameSpan.classList.add('server-name'); // Add class for styling/selection
+        servers.forEach(server => {
+            const li = document.createElement('li');
+            li.classList.add('server-item', 'list-group-item', 'd-flex', 'justify-content-between', 'align-items-center');
+            li.setAttribute('data-server-id', server.id);
 
-                const buttonsDiv = document.createElement('div');
-                buttonsDiv.classList.add('server-item-buttons');
+            const nameSpan = document.createElement('span');
+            nameSpan.textContent = server.name;
+            nameSpan.classList.add('server-name'); // Add class for styling/selection
 
-                const editBtn = document.createElement('button');
-                editBtn.innerHTML = '<i class="fas fa-edit"></i>'; // Using Font Awesome icon
-                editBtn.classList.add('btn', 'btn-sm', 'btn-outline-secondary', 'edit-btn', 'me-1'); // Added me-1 for margin
-                editBtn.setAttribute('aria-label', `Edit ${server.name}`);
-                editBtn.title = `Edit ${server.name}`; // Tooltip
+            const buttonsDiv = document.createElement('div');
+            buttonsDiv.classList.add('server-item-buttons');
 
-                const deleteBtn = document.createElement('button');
-                deleteBtn.innerHTML = '<i class="fas fa-trash-alt"></i>'; // Using Font Awesome icon
-                deleteBtn.classList.add('btn', 'btn-sm', 'btn-outline-danger', 'delete-btn');
-                deleteBtn.setAttribute('aria-label', `Delete ${server.name}`);
-                 deleteBtn.title = `Delete ${server.name}`; // Tooltip
+            const connectBtn = document.createElement('button');
+            connectBtn.innerHTML = '<i class="fas fa-plug"></i>'; // Using Font Awesome icon
+            connectBtn.classList.add('btn', 'btn-sm', 'connect-btn');
+            connectBtn.setAttribute('aria-label', `Connect to ${server.name}`);
+            connectBtn.title = `Connect to ${server.name}`; // Tooltip
 
-                buttonsDiv.appendChild(editBtn);
-                buttonsDiv.appendChild(deleteBtn);
+            const editBtn = document.createElement('button');
+            editBtn.innerHTML = '<i class="fas fa-edit"></i>'; // Using Font Awesome icon
+            editBtn.classList.add('btn', 'btn-sm', 'edit-btn');
+            editBtn.setAttribute('aria-label', `Edit ${server.name}`);
+            editBtn.title = `Edit ${server.name}`; // Tooltip
 
-                li.appendChild(nameSpan);
-                li.appendChild(buttonsDiv);
+            const deleteBtn = document.createElement('button');
+            deleteBtn.innerHTML = '<i class="fas fa-trash-alt"></i>'; // Using Font Awesome icon
+            deleteBtn.classList.add('btn', 'btn-sm', 'delete-btn');
+            deleteBtn.setAttribute('aria-label', `Delete ${server.name}`);
+            deleteBtn.title = `Delete ${server.name}`; // Tooltip
 
-                if (server.id === currentSelectedServerId) {
-                    li.classList.add('active'); // Bootstrap class for selected item
-                    // If a server is selected, ensure the details form is visible
-                    this.connectionDetailsDiv.style.display = '';
-                }
+            buttonsDiv.appendChild(connectBtn);
+            buttonsDiv.appendChild(editBtn);
+            buttonsDiv.appendChild(deleteBtn);
 
-                 // Prevent button clicks from triggering the li click listener immediately
-                 editBtn.addEventListener('click', (e) => e.stopPropagation());
-                 deleteBtn.addEventListener('click', (e) => e.stopPropagation());
+            li.appendChild(nameSpan);
+            li.appendChild(buttonsDiv);
 
+            if (server.id === currentSelectedServerId) {
+                li.classList.add('active'); // Bootstrap class for selected item
+                // If a server is selected, ensure the details form is visible
+                this.connectionDetailsDiv.style.display = '';
+            }
 
-                this.serverListUl.appendChild(li);
+            // Add event listeners only to the buttons
+            connectBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.actions?.onConnectServer(server.id);
             });
-             // If no server is selected after rendering, but there are servers, hide details
-             if (!currentSelectedServerId && servers.length > 0) {
-                  // Don't hide if a server was just added/saved (controller handles showing form)
-                  // Only hide if explicitly no server is selected (e.g. after deletion of selected)
-                  // Let the controller decide visibility via populate/clear form methods
-             } else if (servers.length > 0 && currentSelectedServerId) {
-                 this.connectionDetailsDiv.style.display = ''; // Ensure visible if selection exists
-             }
+
+            editBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.actions?.onSelectServer(server.id);
+            });
+
+            deleteBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (confirm(`Are you sure you want to delete server "${server.name}"?`)) {
+                    this.actions?.onDeleteServer(server.id);
+                }
+            });
+
+            this.serverListUl.appendChild(li);
+        });
+
+        // If no server is selected after rendering, but there are servers, hide details
+        if (!currentSelectedServerId && servers.length > 0) {
+            // Don't hide if a server was just added/saved (controller handles showing form)
+            // Only hide if explicitly no server is selected (e.g. after deletion of selected)
+            // Let the controller decide visibility via populate/clear form methods
+        } else if (servers.length > 0 && currentSelectedServerId) {
+            this.connectionDetailsDiv.style.display = ''; // Ensure visible if selection exists
         }
     }
     // *** NEW METHOD END ***
@@ -909,6 +935,40 @@ export class McpUIView {
     // ADDED: Hide the server form
     public hideServerForm(): void {
         this.connectionDetailsDiv.style.display = 'none';
+    }
+
+    // Add new method to update server connection state
+    public updateServerConnectionState(serverId: string, state: 'connecting' | 'connected' | 'disconnected'): void {
+        const serverItem = this.serverListUl.querySelector(`[data-server-id="${serverId}"]`);
+        if (!serverItem) return;
+
+        // Remove all connection-related classes
+        serverItem.classList.remove('connecting', 'connected');
+
+        // Add appropriate class based on state
+        if (state === 'connecting') {
+            serverItem.classList.add('connecting');
+            // Add spinner to name span
+            const nameSpan = serverItem.querySelector('.server-name');
+            if (nameSpan) {
+                const spinner = document.createElement('span');
+                spinner.classList.add('spinner');
+                nameSpan.insertBefore(spinner, nameSpan.firstChild);
+            }
+        } else if (state === 'connected') {
+            serverItem.classList.add('connected');
+            // Remove spinner if it exists
+            const spinner = serverItem.querySelector('.spinner');
+            if (spinner) {
+                spinner.remove();
+            }
+        } else {
+            // Remove spinner if it exists
+            const spinner = serverItem.querySelector('.spinner');
+            if (spinner) {
+                spinner.remove();
+            }
+        }
     }
 }
 

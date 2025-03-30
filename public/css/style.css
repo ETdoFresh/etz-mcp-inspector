@@ -418,4 +418,68 @@ button:disabled {
 .locked {
     pointer-events: none;
     opacity: 0.6;
+}
+
+.server-item-buttons {
+    display: flex;
+    gap: 5px;
+    align-items: center;
+}
+
+.server-item-buttons button {
+    padding: 4px 8px;
+    font-size: 0.8em;
+    line-height: 1;
+    margin: 0;
+}
+
+.server-item.connecting {
+    background-color: #e9ecef;
+}
+
+.server-item.connected {
+    background-color: #e3f2fd;
+}
+
+.server-item .spinner {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border: 2px solid #f3f3f3;
+    border-top: 2px solid #3498db;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin-right: 5px;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.server-item .connect-btn {
+    background-color: #28a745;
+    color: white;
+}
+
+.server-item .connect-btn:hover {
+    background-color: #218838;
+}
+
+.server-item .edit-btn {
+    background-color: #6c757d;
+    color: white;
+}
+
+.server-item .edit-btn:hover {
+    background-color: #5a6268;
+}
+
+.server-item .delete-btn {
+    background-color: #dc3545;
+    color: white;
+}
+
+.server-item .delete-btn:hover {
+    background-color: #c82333;
 } 
