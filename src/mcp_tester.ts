@@ -176,11 +176,45 @@ document.addEventListener('DOMContentLoaded', () => {
             if (fetchSuccess) {
                 console.log('Tool list received.');
                 // Example tool data - replace with actual data from server
+                // Updated to include parameters
                 const exampleTools = [
-                    { name: 'readFile', description: 'Reads a file from the local system.' },
-                    { name: 'writeFile', description: 'Writes content to a file.' },
-                    { name: 'runCommand', description: 'Executes a shell command.' },
-                    { name: 'listFiles', description: 'Lists files in a directory.' }
+                    {
+                        name: 'readFile',
+                        description: 'Reads a file from the local system.',
+                        parameters: [
+                            { name: 'filePath', type: 'string', description: 'The path to the file to read.' },
+                            { name: 'encoding', type: 'string', description: '(Optional) The file encoding (e.g., utf-8).' }
+                        ]
+                    },
+                    {
+                        name: 'writeFile',
+                        description: 'Writes content to a file.',
+                        parameters: [
+                            { name: 'filePath', type: 'string', description: 'The path to the file to write.' },
+                            { name: 'content', type: 'string', description: 'The content to write.' },
+                            { name: 'encoding', type: 'string', description: '(Optional) The file encoding.' }
+                        ]
+                    },
+                    {
+                        name: 'runCommand',
+                        description: 'Executes a shell command.',
+                        parameters: [
+                            { name: 'command', type: 'string', description: 'The command to execute.' },
+                            { name: 'args', type: 'string[]', description: '(Optional) Arguments for the command.' }
+                        ]
+                    },
+                    {
+                        name: 'listFiles',
+                        description: 'Lists files in a directory.',
+                        parameters: [
+                            { name: 'directoryPath', type: 'string', description: 'The path to the directory.' }
+                        ]
+                    }
+                    // Previous format example (kept for reference):
+                    // { name: 'readFile', description: 'Reads a file from the local system.' },
+                    // { name: 'writeFile', description: 'Writes content to a file.' },
+                    // { name: 'runCommand', description: 'Executes a shell command.' },
+                    // { name: 'listFiles', description: 'Lists files in a directory.' }
                 ];
 
                 if (exampleTools.length === 0) {
@@ -189,7 +223,32 @@ document.addEventListener('DOMContentLoaded', () => {
                 } else {
                     exampleTools.forEach(tool => {
                         const li = document.createElement('li');
-                        li.textContent = `${tool.name}: ${tool.description}`;
+                        li.style.marginBottom = '10px'; // Add some space between tools
+
+                        // Tool Name and Description
+                        const toolInfo = document.createElement('div');
+                        toolInfo.innerHTML = `<strong>${tool.name}:</strong> ${tool.description}`;
+                        li.appendChild(toolInfo);
+
+                        // Parameters List (if any)
+                        if (tool.parameters && tool.parameters.length > 0) {
+                            const paramsUl = document.createElement('ul');
+                            paramsUl.style.marginLeft = '20px'; // Indent parameters
+                            paramsUl.style.marginTop = '5px'; // Space between tool desc and params
+                            paramsUl.style.listStyleType = 'circle'; // Use circles for sub-bullets
+
+                            tool.parameters.forEach(param => {
+                                const paramLi = document.createElement('li');
+                                paramLi.style.fontSize = '0.9em'; // Slightly smaller font for params
+                                paramLi.style.marginBottom = '3px'; // Space between params
+                                // Display Name, Type (default to 'any'), and Description
+                                paramLi.innerHTML = `<em>${param.name} (${param.type || 'any'})</em>: ${param.description}`;
+                                paramsUl.appendChild(paramLi);
+                            });
+
+                            li.appendChild(paramsUl);
+                        }
+
                         toolsListUl.appendChild(li);
                     });
                 }
