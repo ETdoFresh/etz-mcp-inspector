@@ -1,0 +1,243 @@
+/* Basic Reset & Body Styling */
+
+:root {
+  --background-color: #ffffff;
+  --text-color: #333333;
+  --link-color: #007bff;
+  --button-bg: #007bff;
+  --button-text: #ffffff;
+  --button-hover-bg: #0056b3;
+  --container-bg: #f9f9f9;
+  --input-border: #ccc;
+  --input-bg: #ffffff;
+  --list-item-bg: #e9ecef;
+  --list-border: #eee;
+  --status-neutral: #bbb;
+  --status-connected: #28a745;
+  --status-error: #dc3545;
+  --toggle-icon: '🌙'; /* Default is moon for light mode */
+}
+
+[data-theme='dark'] {
+  --background-color: #1a1a1a;
+  --text-color: #e0e0e0;
+  --link-color: #64b5f6;
+  --button-bg: #1e88e5;
+  --button-text: #ffffff;
+  --button-hover-bg: #0d47a1;
+  --container-bg: #2c2c2c;
+  --input-border: #555555;
+  --input-bg: #333333;
+  --list-item-bg: #424242;
+  --list-border: #444;
+  --status-neutral: #777;
+  --status-connected: #66bb6a;
+  --status-error: #ef5350;
+  --toggle-icon: '☀️'; /* Sun for dark mode */
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box; /* Makes width/height include padding and border */
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol"; /* Modern system font stack */
+  line-height: 1.6;
+  background-color: var(--background-color);
+  color: var(--text-color);
+  padding: 20px; /* Add some padding around the content */
+  font-size: 16px; /* Base font size */
+  transition: background-color 0.3s ease, color 0.3s ease; /* Smooth transitions */
+}
+
+h1, h2, h3, h4, h5, h6 {
+    margin-bottom: 0.75em; /* Add some space below headings */
+    font-weight: 600; /* Slightly bolder headings */
+}
+
+a {
+    color: var(--link-color);
+    text-decoration: none; /* Remove underline by default */
+}
+
+a:hover {
+    text-decoration: underline; /* Add underline on hover */
+}
+
+/* Theme Toggle Button Styling */
+#theme-toggle {
+    position: fixed;
+    top: 15px;
+    right: 15px;
+    background: none;
+    border: 1px solid var(--input-border);
+    color: var(--text-color);
+    cursor: pointer;
+    font-size: 1.2em;
+    padding: 5px 8px;
+    border-radius: 5px;
+    z-index: 1000; /* Ensure it's above other content */
+    line-height: 1;
+    transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
+}
+
+#theme-toggle::before {
+    content: var(--toggle-icon);
+    display: inline-block;
+}
+
+#theme-toggle:hover {
+    background-color: var(--container-bg);
+}
+
+/* Styles specific to mcp_tester.html (moved from inline) */
+/* Note: Some styles might be redundant or conflict with the general styles above. */
+/* These may need refinement. */
+
+.container {
+    max-width: 500px;
+    margin: auto;
+    padding: 20px;
+    border: 1px solid var(--input-border);
+    border-radius: 5px;
+    background-color: var(--container-bg);
+    transition: background-color 0.3s ease, border-color 0.3s ease;
+}
+
+.form-group {
+    margin-bottom: 15px;
+}
+
+label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: bold;
+}
+
+input[type="text"],
+select {
+    width: calc(100% - 22px);
+    /* Adjust for padding/border */
+    padding: 8px;
+    border: 1px solid var(--input-border);
+    border-radius: 3px;
+    box-sizing: border-box;
+    /* Include padding and border in the element's total width and height */
+    background-color: var(--input-bg);
+    color: var(--text-color);
+    transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
+}
+
+select {
+    width: 100%;
+    /* Select takes full width */
+}
+
+.args-input-group {
+    display: flex;
+    align-items: center;
+}
+
+.args-input-group input[type="text"] {
+    flex-grow: 1;
+    margin-right: 5px;
+}
+
+button {
+    padding: 10px 15px;
+    background-color: var(--button-bg);
+    color: var(--button-text);
+    border: none;
+    border-radius: 3px;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+}
+
+button:hover {
+    background-color: var(--button-hover-bg);
+}
+
+button:disabled {
+    background-color: #cccccc; /* Keep disabled state simpler */
+    color: #666;
+    cursor: not-allowed;
+}
+
+#args-list {
+    list-style: none;
+    padding: 0;
+    margin-top: 10px;
+    max-height: 100px;
+    overflow-y: auto;
+    border: 1px dashed var(--list-border);
+    padding: 5px;
+    background-color: var(--input-bg);
+    transition: background-color 0.3s ease, border-color 0.3s ease;
+}
+
+#args-list li {
+    background-color: var(--list-item-bg);
+    margin-bottom: 3px;
+    padding: 3px 8px;
+    border-radius: 3px;
+    font-size: 0.9em;
+    color: var(--text-color);
+    transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+.status-indicator {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background-color: var(--status-neutral);
+    /* Neutral default */
+    margin-left: 10px;
+    vertical-align: middle;
+    transition: background-color 0.3s ease;
+}
+
+.status-indicator.connected {
+    background-color: var(--status-connected);
+    /* Green */
+}
+
+.status-indicator.error {
+    background-color: var(--status-error);
+    /* Red */
+}
+
+.error-message {
+    color: var(--status-error);
+    margin-top: 10px;
+    font-size: 0.9em;
+    display: none;
+    /* Hidden by default */
+}
+
+.connecting-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.5); /* Slightly darker overlay for dark mode */
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-weight: bold;
+    z-index: 10;
+    cursor: wait;
+    color: var(--text-color);
+}
+
+[data-theme='light'] .connecting-overlay {
+     background-color: rgba(255, 255, 255, 0.7); /* Keep light overlay for light mode */
+}
+
+.locked {
+    pointer-events: none;
+    opacity: 0.6;
+} 

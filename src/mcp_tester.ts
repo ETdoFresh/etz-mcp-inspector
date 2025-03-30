@@ -1,3 +1,5 @@
+import './theme-toggle';
+
 document.addEventListener('DOMContentLoaded', () => {
     const transportSelect = document.getElementById('transport') as HTMLSelectElement | null;
     const commandInput = document.getElementById('command') as HTMLInputElement | null;
@@ -176,4 +178,6 @@ document.addEventListener('DOMContentLoaded', () => {
     // Event listener for the List Tools button
     // Null check performed at top level
     listToolsBtn.addEventListener('click', listTools);
-}); 
+});
+
+console.log("MCP Tester script loaded."); // Example placeholder 
