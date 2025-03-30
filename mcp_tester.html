@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MCP Connection Tester</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            padding: 20px;
+        }
+        .container {
+            max-width: 500px;
+            margin: auto;
+            padding: 20px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            background-color: #f9f9f9;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input[type="text"], select {
+            width: calc(100% - 22px); /* Adjust for padding/border */
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 3px;
+            box-sizing: border-box; /* Include padding and border in the element's total width and height */
+        }
+         select {
+             width: 100%; /* Select takes full width */
+         }
+        .args-input-group {
+            display: flex;
+            align-items: center;
+        }
+        .args-input-group input[type="text"] {
+            flex-grow: 1;
+            margin-right: 5px;
+        }
+        button {
+            padding: 10px 15px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        #args-list {
+            list-style: none;
+            padding: 0;
+            margin-top: 10px;
+            max-height: 100px;
+            overflow-y: auto;
+            border: 1px dashed #eee;
+            padding: 5px;
+            background-color: #fff;
+        }
+         #args-list li {
+             background-color: #e9ecef;
+             margin-bottom: 3px;
+             padding: 3px 8px;
+             border-radius: 3px;
+             font-size: 0.9em;
+         }
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background-color: #bbb; /* Neutral default */
+            margin-left: 10px;
+            vertical-align: middle;
+        }
+        .status-indicator.connected {
+            background-color: #28a745; /* Green */
+        }
+        .status-indicator.error {
+            background-color: #dc3545; /* Red */
+        }
+        .error-message {
+            color: #dc3545;
+            margin-top: 10px;
+            font-size: 0.9em;
+            display: none; /* Hidden by default */
+        }
+        .connecting-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(255, 255, 255, 0.7);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-weight: bold;
+            z-index: 10;
+            cursor: wait;
+        }
+        .locked {
+             pointer-events: none;
+             opacity: 0.6;
+         }
+    </style>
+</head>
+<body>
+    <div class="container" id="mcp-tester-container">
+        <h2>MCP Server Configuration</h2>
+
+        <div class="form-group">
+            <label for="transport">Transport:</label>
+            <select id="transport" name="transport">
+                <option value="STDIO" selected>STDIO (default)</option>
+                <option value="SSE">SSE</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="command">Command:</label>
+            <input type="text" id="command" name="command" placeholder="e.g., npx my-mcp-server">
+        </div>
+
+        <div class="form-group">
+            <label for="arg-input">Arguments:</label>
+            <div class="args-input-group">
+                <input type="text" id="arg-input" placeholder="Enter argument">
+                <button id="add-arg-btn" title="Add Argument">+</button>
+            </div>
+            <ul id="args-list">
+                <!-- Added arguments will appear here -->
+            </ul>
+        </div>
+
+        <div class="form-group">
+            <button id="test-connection-btn">Test Connection</button>
+            <span id="status-indicator" class="status-indicator"></span>
+        </div>
+
+        <div id="error-message" class="error-message">
+            <!-- Error messages will appear here -->
+        </div>
+
+        <!-- Overlay for connecting state -->
+         <div id="connecting-overlay" class="connecting-overlay" style="display: none;">Connecting...</div>
+
+    </div>
+
+    <script src="mcp_tester.js"></script>
+</body>
+</html> 
