@@ -1,5 +1,7 @@
 // src/mcp-communication.ts
 import { McpMessagePayload } from '../models/mcp-message-payload.model';
+import { ApplicationServiceProvider } from './application-service-provider';
+import { Logger } from './logger-service';
 
 // Define the structure for connection configuration
 export interface McpConnectionConfig {
@@ -21,6 +23,7 @@ export interface McpCommunicationCallbacks {
 }
 
 export class McpCommunicationService {
+    private logger: Logger | undefined = ApplicationServiceProvider.getService(Logger);
     private eventSource: EventSource | null = null;
     private isConnectedState: boolean = false;
     private readonly MCP_PROXY_PATH = '/mcp-proxy'; // Path for SSE and POST requests
@@ -41,8 +44,8 @@ export class McpCommunicationService {
         this.callbacks.onConnecting(); // Use direct call assuming callbacks is non-null here
         this.isConnectedState = false;
 
-        console.log('Attempting SSE connection to backend proxy...');
-        console.log('Config:', config);
+        this.logger?.LogInfo('Attempting SSE connection to backend proxy...', "Service", "Comm", "Connect", "SSE");
+        this.logger?.LogDebug(`Config: ${JSON.stringify(config)}`, "Service", "Comm", "Connect", "Config");
 
         try {
             const urlParams = new URLSearchParams({
@@ -51,56 +54,57 @@ export class McpCommunicationService {
                 args: JSON.stringify(config.args) // Args are expected as a JSON string by the backend
             });
             const sseUrl = `${this.MCP_PROXY_PATH}?${urlParams.toString()}`;
-            console.log('SSE URL:', sseUrl);
+            this.logger?.LogDebug(`SSE URL: ${sseUrl}`, "Service", "Comm", "Connect", "SSE", "URL");
             this.eventSource = new EventSource(sseUrl);
 
             this.eventSource.onopen = () => {
-                console.log('[Comm] EventSource onopen fired.');
+                this.logger?.LogInfo('EventSource onopen fired.', "Service", "Comm", "SSE", "Event", "Open");
                 this.isConnectedState = true;
-                console.log(`[Comm] isConnectedState set to: ${this.isConnectedState}`);
-                console.log(`[Comm] Checking callbacks object: ${this.callbacks ? 'Exists' : 'NULL or Undefined'}`);
+                this.logger?.LogDebug(`isConnectedState set to: ${this.isConnectedState}`, "Service", "Comm", "SSE", "State");
+                this.logger?.LogDebug(`Checking callbacks object: ${this.callbacks ? 'Exists' : 'NULL or Undefined'}`, "Service", "Comm", "SSE", "CallbackCheck");
                 if (this.callbacks) {
-                    console.log(`[Comm] Checking callbacks.onConnected function: ${typeof this.callbacks.onConnected === 'function' ? 'Is a function' : 'NOT a function'}`);
+                    this.logger?.LogDebug(`Checking callbacks.onConnected function: ${typeof this.callbacks.onConnected === 'function' ? 'Is a function' : 'NOT a function'}`, "Service", "Comm", "SSE", "CallbackCheck");
                     try {
-                        console.log('[Comm] Attempting to call callbacks.onConnected()...');
+                        this.logger?.LogDebug('Attempting to call callbacks.onConnected()...', "Service", "Comm", "SSE", "Callback");
                         this.callbacks.onConnected();
-                        console.log('[Comm] Successfully called callbacks.onConnected().');
-                    } catch (e) {
-                        console.error('[Comm] Error calling callbacks.onConnected():', e);
+                        this.logger?.LogDebug('Successfully called callbacks.onConnected().', "Service", "Comm", "SSE", "Callback");
+                    } catch (e: unknown) {
+                        const errorMsg = e instanceof Error ? e.message : String(e);
+                        this.logger?.LogError(`Error calling callbacks.onConnected(): ${errorMsg}`, "Service", "Comm", "SSE", "Callback", "Error");
                     }
                 } else {
-                    console.error('[Comm] Cannot call onConnected because callbacks object is missing!');
+                    this.logger?.LogError('Cannot call onConnected because callbacks object is missing!', "Service", "Comm", "SSE", "Callback", "Error", "Missing");
                 }
             };
 
-            this.eventSource.onerror = (error) => {
-                console.error('SSE connection error:', error);
+            this.eventSource.onerror = (errorEvent) => { // errorEvent is a generic Event, not very detailed
+                this.logger?.LogError(`SSE connection error. State: ${this.eventSource?.readyState}`, "Service", "Comm", "SSE", "Event", "Error"); // Replaced console.error
                 this.isConnectedState = false;
-                const errorMessage = 'SSE connection failed. Is the backend server running? Check console.';
+                const errorMessage = 'SSE connection failed. Is the backend server running? Check logs.';
                 this.callbacks?.onError(errorMessage, true); // Indicate it's a connection error
                 this.disconnect(); // Ensure closure on error
             };
 
             this.eventSource.onmessage = (event) => {
-                console.log('SSE message received:', event.data);
+                this.logger?.LogDebug(`SSE message received: ${event.data}`, "Service", "Comm", "SSE", "Event", "Message"); // Replaced console.log (debug for raw data)
                 try {
                     this.handleServerMessage(JSON.parse(event.data));
                 } catch (e: any) {
-                    console.error('Failed to parse SSE message:', e, 'Data:', event.data);
+                    this.logger?.LogError(`Failed to parse SSE message: ${e?.message || e}. Data: ${event.data}`, "Service", "Comm", "SSE", "Event", "Message", "ParseError"); // Replaced console.error
                     this.callbacks?.onError(`Failed to parse message from server: ${e?.message || e}`, false);
                 }
             };
         } catch (e: any) {
-            console.error('Failed to initialize EventSource:', e);
+            this.logger?.LogError(`Failed to initialize EventSource: ${e?.message || e}`, "Service", "Comm", "SSE", "InitError"); // Replaced console.error
             this.isConnectedState = false;
-            this.callbacks?.onError(`Error: Could not initiate connection. Check console. ${e?.message || e}`, true); // Connection error
+            this.callbacks?.onError(`Error: Could not initiate connection. Check logs. ${e?.message || e}`, true); // Connection error
             this.disconnect();
         }
     }
 
     public disconnect(): void {
         if (this.eventSource) {
-            console.log("Closing SSE connection.");
+            this.logger?.LogInfo("Closing SSE connection.", "Service", "Comm", "SSE", "Disconnect"); // Replaced console.log
             this.eventSource.close();
             this.eventSource = null;
         }
@@ -119,12 +123,12 @@ export class McpCommunicationService {
     public async sendRequestToBackend(type: string, payload: any): Promise<{ success: boolean; error?: string }> {
         if (!this.isConnectedState) {
             const errorMsg = 'Cannot send request: Not connected.';
-            console.error(errorMsg);
+            this.logger?.LogError(errorMsg, "Service", "Comm", "HTTP", "RequestError", "Preflight"); // Replaced console.error
             // Don't trigger onError here, let the UI handle the state check
             // this.callbacks?.onError(errorMsg, false);
             return { success: false, error: errorMsg };
         }
-        console.log(`Sending '${type}' request to backend:`, payload);
+        this.logger?.LogDebug(`Sending '${type}' request to backend: ${JSON.stringify(payload)}`, "Service", "Comm", "HTTP", "Request"); // Replaced console.log (debug, stringify)
         try {
             const response = await fetch(this.MCP_PROXY_PATH, {
                 method: 'POST',
@@ -133,17 +137,17 @@ export class McpCommunicationService {
             });
             if (!response.ok) {
                 const errorText = await response.text();
-                console.error(`Backend request error: ${response.status}`, errorText);
+                this.logger?.LogError(`Backend request error: ${response.status} - ${errorText}`, "Service", "Comm", "HTTP", "ResponseError"); // Replaced console.error
                 const errorMsg = `Error sending '${type}' request: ${errorText || response.statusText}`;
                 this.callbacks?.onError(errorMsg, false); // Report error sending
                 return { success: false, error: errorMsg };
             } else {
-                console.log(`'${type}' request sent successfully.`);
+                this.logger?.LogInfo(`'${type}' request sent successfully.`, "Service", "Comm", "HTTP", "RequestSuccess"); // Replaced console.log
                 return { success: true };
             }
         } catch (error: any) {
-            console.error('Network error sending request:', error);
-            const errorMsg = `Network error sending '${type}' request. Check console. ${error.message || error}`;
+            this.logger?.LogError(`Network error sending request: ${error.message || error}`, "Service", "Comm", "HTTP", "NetworkError"); // Replaced console.error
+            const errorMsg = `Network error sending '${type}' request. Check logs. ${error.message || error}`;
             this.callbacks?.onError(errorMsg, false); // Report network error
             return { success: false, error: errorMsg };
         }
@@ -152,45 +156,45 @@ export class McpCommunicationService {
     // Handles messages *from the proxy server* (including wrapped MCP messages)
     private handleServerMessage(message: any): void {
         if (!message || typeof message !== 'object' || !message.type) {
-            console.warn('SSE message missing type or invalid format:', message);
+            this.logger?.LogWarning(`SSE message missing type or invalid format: ${JSON.stringify(message)}`, "Service", "Comm", "SSE", "Message", "FormatError"); // Replaced console.warn
             return;
         }
-        console.log(`Handling proxy message type: ${message.type}`, message.payload);
+        this.logger?.LogDebug(`Handling proxy message type: ${message.type}`, "Service", "Comm", "SSE", "Message", "Handling"); // Replaced console.log
 
         switch (message.type) {
             case 'connectionStatus':
-                console.log('Connection status update from proxy:', message.payload);
+                this.logger?.LogDebug(`Connection status update from proxy: ${JSON.stringify(message.payload)}`, "Service", "Comm", "SSE", "Message", "StatusUpdate"); // Replaced console.log
                 this.handleConnectionStatusUpdate(message.payload);
                 break;
             case 'logMessage':
                 if (message.payload && typeof message.payload.source === 'string' && typeof message.payload.content === 'string') {
                     this.callbacks?.onLogMessage(message.payload.source, message.payload.content);
                 } else {
-                     console.warn('Invalid logMessage format:', message.payload);
+                     this.logger?.LogWarning(`Invalid logMessage format: ${JSON.stringify(message.payload)}`, "Service", "Comm", "SSE", "Message", "FormatError", "LogMessage"); // Replaced console.warn
                 }
                 break;
             case 'commandError': // Error reported from backend when trying to POST command to MCP
                 if (message.payload && typeof message.payload.type === 'string' && typeof message.payload.error === 'string') {
-                    console.error(`Backend command error for type ${message.payload.type}:`, message.payload.error);
+                    this.logger?.LogError(`Backend command error for type ${message.payload.type}: ${message.payload.error}`, "Service", "Comm", "HTTP", "CommandError"); // Replaced console.error
                     const commandErrMsg = `Backend Error: Failed to send command '${message.payload.type}' to MCP process. ${message.payload.error}`;
                     this.callbacks?.onError(commandErrMsg, false); // Report command error
                 } else {
-                    console.warn('Invalid commandError format:', message.payload);
+                    this.logger?.LogWarning(`Invalid commandError format: ${JSON.stringify(message.payload)}`, "Service", "Comm", "SSE", "Message", "FormatError", "CommandError"); // Replaced console.warn
                 }
                 break;
             case 'mcpMessage': // Message is specifically identified as originating from the MCP client
-                console.log('Received wrapped MCP message:', message.payload);
+                this.logger?.LogDebug(`Received wrapped MCP message`, "Service", "Comm", "SSE", "Message", "MCPMessage"); // Replaced console.log
                 this.handleMcpProcessMessage(message.payload); // Handle the unwrapped payload
                 break;
             default:
-                console.warn('Unhandled SSE message type from proxy:', message.type);
+                this.logger?.LogWarning(`Unhandled SSE message type from proxy: ${message.type}`, "Service", "Comm", "SSE", "Message", "Unhandled"); // Replaced console.warn
         }
     }
 
     // Handles the 'connectionStatus' message payload from the proxy
     private handleConnectionStatusUpdate(payload: any): void {
          if (!payload || typeof payload !== 'object') {
-             console.warn("Invalid connectionStatus payload:", payload);
+             this.logger?.LogWarning(`Invalid connectionStatus payload: ${JSON.stringify(payload)}`, "Service", "Comm", "SSE", "Message", "StatusUpdate", "FormatError"); // Replaced console.warn
              return;
          }
          if (payload.status === 'error') {
@@ -217,7 +221,7 @@ export class McpCommunicationService {
              // Close our SSE connection as the underlying process ended
              this.disconnect();
         } else {
-             console.warn("Unknown connectionStatus status:", payload.status);
+             this.logger?.LogWarning(`Unknown connectionStatus status: ${payload.status}`, "Service", "Comm", "SSE", "Message", "StatusUpdate", "UnknownStatus"); // Replaced console.warn
         }
     }
 
@@ -228,10 +232,11 @@ export class McpCommunicationService {
             // It looks like a valid JSON-RPC message (response or notification)
             this.callbacks?.onMcpMessage(mcpData as McpMessagePayload);
         } else {
-            console.warn('Received unknown data structure from MCP via proxy:', mcpData);
+            const dataString = JSON.stringify(mcpData);
+            this.logger?.LogWarning(`Received unknown data structure from MCP via proxy: ${dataString}`, "Service", "Comm", "MCP", "FormatError"); // Replaced console.warn
             // Optionally report this as a specific type of log/error
             // this.callbacks?.onError("Received malformed message from MCP client", false);
-            this.callbacks?.onLogMessage('mcp_raw', `Received unknown data structure: ${JSON.stringify(mcpData)}`);
+            this.callbacks?.onLogMessage('mcp_raw', `Received unknown data structure: ${dataString}`);
         }
     }
 } 

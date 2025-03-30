@@ -3,6 +3,8 @@ import { McpUIView } from '../views/mcp-ui';
 import { McpCommunicationService, McpCommunicationCallbacks, McpConnectionConfig } from '../services/mcp-communication';
 import { McpMessagePayload } from '../models/mcp-message-payload.model'; // Needed for onMcpMessage
 import { UIToolDefinition } from '../models/tool-definition.model'; // Needed for renderToolList
+import { ApplicationServiceProvider } from '../services/application-service-provider'; // Added
+import { Logger } from '../services/logger-service'; // Added
 
 // Define the structure for callbacks the UI needs to trigger actions
 export interface McpUIActions {
@@ -17,6 +19,7 @@ export interface McpUIActions {
 export class McpController implements McpUIActions, McpCommunicationCallbacks {
     private view: McpUIView;
     private communicationService: McpCommunicationService;
+    private logger: Logger | undefined = ApplicationServiceProvider.getService(Logger); // Added
     // State to track the type of request pending a response
     private pendingRequestType: 'listTools' | 'executeTool' | null = null;
     
@@ -35,19 +38,19 @@ export class McpController implements McpUIActions, McpCommunicationCallbacks {
         // Potentially load saved config and render args here?
         this.loadAndApplyConfig();
 
-        console.log("McpController initialized.");
+        this.logger?.LogInfo("McpController initialized.", "Controller", "Initialization"); // Replaced console.log
     }
 
     // --- Implementation of McpUIActions ---
 
     onAddArgument(): void {
-        console.log("[Controller] onAddArgument triggered");
+        this.logger?.LogDebug("onAddArgument triggered", "Controller", "Action", "UIEvent"); // Replaced console.log
         // This might trigger saving config if needed
         this.saveConfig(); 
     }
 
     onTestConnection(args: string[]): void {
-        console.log("[Controller] onTestConnection triggered with args:", args);
+        this.logger?.LogInfo(`onTestConnection triggered with ${args.length} args`, "Controller", "Action", "UIEvent"); // Replaced console.log
         this.view.showConnecting();
         
         // Get current config from view
@@ -67,7 +70,7 @@ export class McpController implements McpUIActions, McpCommunicationCallbacks {
     }
 
     onListTools(): void {
-        console.log("[Controller] onListTools triggered");
+        this.logger?.LogInfo("onListTools triggered", "Controller", "Action", "UIEvent"); // Replaced console.log
         if (!this.communicationService.isConnected) {
             this.view.showToolListError("Cannot list tools: Not connected.");
             return;
@@ -78,12 +81,12 @@ export class McpController implements McpUIActions, McpCommunicationCallbacks {
         // Send request via service - Use correct method name 'tools/list'
         // The proxy will add an ID
         this.communicationService.sendRequestToBackend('tools/list', {});
-        console.log(`[Controller] Sent tools/list request`);
+        this.logger?.LogDebug(`Sent tools/list request`, "Controller", "Action", "MCPRequest"); // Replaced console.log
         // Result will be handled by onMcpMessage callback
     }
 
     onExecuteTool(params: { [key: string]: any }): void {
-        console.log("[Controller] onExecuteTool triggered with params:", params);
+        this.logger?.LogInfo(`onExecuteTool triggered`, "Controller", "Action", "UIEvent", "ToolExecution"); // Replaced console.log
         if (!this.communicationService.isConnected) {
             this.view.displayToolResult({ status: 'error', message: "Cannot execute tool: Not connected." });
             return;
@@ -104,60 +107,60 @@ export class McpController implements McpUIActions, McpCommunicationCallbacks {
             name: selectedToolName, // Older code used 'name' and 'arguments'
             arguments: params 
         });
-        console.log(`[Controller] Sent tools/call request for ${selectedToolName}`);
+        this.logger?.LogDebug(`Sent tools/call request for ${selectedToolName}`, "Controller", "Action", "MCPRequest", "ToolExecution"); // Replaced console.log
         // Result will be handled by onMcpMessage callback
     }
 
     onToolSelected(toolIndex: number): void {
-        console.log(`[Controller] onToolSelected triggered with index: ${toolIndex}`);
+        this.logger?.LogDebug(`onToolSelected triggered with index: ${toolIndex}`, "Controller", "Action", "UIEvent", "ToolSelection"); // Replaced console.log
         // Logic is currently handled by the View to display the form.
         // Controller could store the selected tool definition if needed for execution.
         // this.selectedTool = this.view.getToolDefinitionByIndex(toolIndex); // Example if needed
     }
 
     onArgumentInputChange(): string[] {
-        console.log("[Controller] onArgumentInputChange triggered");
+        this.logger?.LogDebug("onArgumentInputChange triggered", "Controller", "Action", "UIEvent"); // Replaced console.log
         const currentArgs = this.view.getAllArguments();
         // Trigger saving config whenever args change
         this.saveConfig(); 
-        console.log("[Controller] Current args from view:", currentArgs);
+        this.logger?.LogDebug(`Current args from view: ${JSON.stringify(currentArgs)}`, "Controller", "State", "UIEvent"); // Replaced console.log
         return currentArgs;
     }
 
     // --- Implementation of McpCommunicationCallbacks ---
 
     onConnecting(): void {
-        console.log("[Controller] Service is connecting...");
+        this.logger?.LogInfo("Service is connecting...", "Controller", "Callback", "CommunicationState"); // Replaced console.log
         this.view.showConnecting();
     }
 
     onConnected(): void {
-        console.log("[Controller] Service connected.");
+        this.logger?.LogInfo("Service connected.", "Controller", "Callback", "CommunicationState"); // Replaced console.log
         this.view.showConnected(true);
     }
 
     onDisconnected(code?: number | string): void {
-        console.log(`[Controller] Service disconnected. Code: ${code}`);
+        this.logger?.LogInfo(`Service disconnected. Code: ${code ?? 'N/A'}`, "Controller", "Callback", "CommunicationState"); // Replaced console.log
         this.pendingRequestType = null; // Reset pending request on disconnect
         this.view.showConnected(false); // Update status indicator
         this.view.showError(`Disconnected (Code: ${code})`, false); // Show message, not necessarily a connection error
     }
 
     onError(error: string, isConnectionError: boolean): void {
-        console.error(`[Controller] Service Error: ${error}. Is connection error: ${isConnectionError}`);
+        this.logger?.LogError(`Service Error: ${error}. Is connection error: ${isConnectionError}`, "Controller", "Callback", "CommunicationError"); // Replaced console.error
         this.pendingRequestType = null; // Reset pending request on error
         this.view.showError(error, isConnectionError);
     }
 
     onMcpMessage(payload: McpMessagePayload): void {
-        console.log("[Controller] Received MCP message:", payload);
+        this.logger?.LogDebug(`Received MCP message`, "Controller", "Callback", "MCPMessage"); // Replaced console.log
 
         // Check if it's a response (has an ID)
         if (payload.id) {
             // Check the pending request type to determine how to handle the response
             switch (this.pendingRequestType) {
                 case 'listTools':
-                    console.log(`[Controller] Handling response for pending request: ${this.pendingRequestType} (ID: ${payload.id})`);
+                    this.logger?.LogDebug(`Handling response for pending request: ${this.pendingRequestType} (ID: ${payload.id})`, "Controller", "Callback", "MCPMessage", "ResponseHandling"); // Replaced console.log
                     if (payload.result && payload.result.tools && Array.isArray(payload.result.tools)) {
                         this.view.renderToolList(payload.result.tools as UIToolDefinition[]); 
                     } else if (payload.error) {
@@ -169,7 +172,7 @@ export class McpController implements McpUIActions, McpCommunicationCallbacks {
                     break;
 
                 case 'executeTool':
-                    console.log(`[Controller] Handling response for pending request: ${this.pendingRequestType} (ID: ${payload.id})`);
+                    this.logger?.LogDebug(`Handling response for pending request: ${this.pendingRequestType} (ID: ${payload.id})`, "Controller", "Callback", "MCPMessage", "ResponseHandling"); // Replaced console.log
                      if (payload.result !== undefined) { 
                          this.view.displayToolResult({ status: 'success', data: payload.result });
                      } else if (payload.error) {
@@ -181,7 +184,7 @@ export class McpController implements McpUIActions, McpCommunicationCallbacks {
                     break;
 
                 default:
-                    console.warn(`[Controller] Received response with ID ${payload.id} but no matching pending request type (${this.pendingRequestType})`, payload);
+                    this.logger?.LogWarning(`Received response with ID ${payload.id} but no matching pending request type (${this.pendingRequestType})`, "Controller", "Callback", "MCPMessage", "ResponseHandling", "Unexpected"); // Replaced console.warn
                     // Handle unexpected response? Maybe show a generic error?
                     break;
             }
@@ -190,42 +193,44 @@ export class McpController implements McpUIActions, McpCommunicationCallbacks {
         else if (payload.method) { 
              if (payload.method === 'logMessage') { 
                  if (payload.params && typeof payload.params.message === 'string') {
-                     console.log(`[MCP Log] ${payload.params.level || 'info'}: ${payload.params.message}`);
+                     const level = payload.params.level || 'info';
+                     this.logger?.LogInfo(`[MCP Log/${level.toUpperCase()}]: ${payload.params.message}`, "Controller", "Callback", "MCPMessage", "Notification", "MCPLog"); // Replaced console.log
                      // this.view.addLogMessage(...) // Example
                  }
             } else {
-                console.warn("[Controller] Unhandled MCP notification method:", payload.method, payload.params);
+                this.logger?.LogWarning(`Unhandled MCP notification method: ${payload.method}`, "Controller", "Callback", "MCPMessage", "Notification", "Unhandled"); // Replaced console.warn
             }
         } 
         // --- Handle Unexpected Data --- 
         else {
-            console.warn("[Controller] Received unexpected data structure from MCP:", payload);
+            this.logger?.LogWarning(`Received unexpected data structure from MCP`, "Controller", "Callback", "MCPMessage", "Unexpected"); // Replaced console.warn
         }
     }
 
     onLogMessage(source: string, content: string): void {
-        console.log(`[Controller] Log from ${source}: ${content}`);
+        this.logger?.LogInfo(`Log from service [${source}]: ${content}`, "Controller", "Callback", "ServiceLog"); // Replaced console.log
         // TODO: Decide how/if to display proxy/service logs in the UI
         // this.view.addLogMessage(`${source}: ${content}`); // Example
     }
 
     // --- Helper Methods ---
     private saveConfig(config?: McpConnectionConfig): void {
-        console.log("[Controller] Attempting to save config...");
+        this.logger?.LogDebug("Attempting to save config...", "Controller", "Helper", "Config"); // Already updated
         try {
             const transport = config?.transport ?? this.view.getTransport();
             const command = config?.command ?? this.view.getCommand();
             const args = config?.args ?? this.view.getAllArguments();
-            
+
             localStorage.setItem('mcpConfig', JSON.stringify({ transport, command, args }));
-            console.log("Config saved:", { transport, command, args });
-        } catch (e) {
-            console.error("[Controller] Failed to save config to localStorage:", e);
+            this.logger?.LogInfo("Config saved.", "Controller", "Helper", "Config"); // Replaced console.log
+        } catch (e: unknown) {
+            const errorMsg = e instanceof Error ? e.message : String(e);
+            this.logger?.LogError(`Failed to save config to localStorage: ${errorMsg}`, "Controller", "Helper", "Config", "Error"); // Replaced console.error
         }
     }
 
     private loadAndApplyConfig(): void {
-        console.log("[Controller] Attempting to load config...");
+        this.logger?.LogDebug("Attempting to load config...", "Controller", "Helper", "Config"); // Replaced console.log
         try {
             const savedConfig = localStorage.getItem('mcpConfig');
             if (savedConfig) {
@@ -234,13 +239,16 @@ export class McpController implements McpUIActions, McpCommunicationCallbacks {
                     this.view.setTransport(config.transport || 'tcp'); // Provide default
                     this.view.setCommand(config.command || '');
                     this.view.renderArgumentInputs(config.args || []);
-                    console.log("Config loaded and applied:", config);
+                    this.logger?.LogInfo("Config loaded and applied.", "Controller", "Helper", "Config"); // Replaced console.log
                 } else {
-                    console.log("No valid saved config found.");
+                    this.logger?.LogInfo("No valid saved config found.", "Controller", "Helper", "Config"); // Replaced console.log
                 }
+            } else {
+                 this.logger?.LogInfo("No saved config found in localStorage.", "Controller", "Helper", "Config"); // Added log for clarity
             }
-        } catch (e) {
-            console.error("[Controller] Failed to load or apply config from localStorage:", e);
+        } catch (e: unknown) {
+             const errorMsg = e instanceof Error ? e.message : String(e);
+            this.logger?.LogError(`Failed to load or apply config from localStorage: ${errorMsg}`, "Controller", "Helper", "Config", "Error"); // Replaced console.error
         }
     }
 } 

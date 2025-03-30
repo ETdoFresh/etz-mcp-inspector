@@ -1,0 +1,47 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# Logger
+
+The logger is an application scoped service that is used to log messages to the console.
+
+## Log Data
+
+It is a singleton and can be accessed globally via the Application Service Provider. Logs can be filtered by level and tag.
+
+## Levels
+
+Levels are enumerated as follows:
+
+1. Fatal
+2. Error
+3. Warning
+4. Info
+5. Debug
+
+## Tags
+
+Tags are strings that can be used to filter logs. To use multiple tags, separate them with a comma. Spaces around tags are trimmed. Examples:
+
+- Application
+- Scene
+- Model
+- View
+- Controller
+- Service
+- Service Provider
+- Scene Service Provider
+- Scene Controller
+
+## Usage
+
+```typescript
+var logger = ApplicationServiceProvider.GetService<Logger>();
+logger.LogFatal("fatal message", "optional tag");
+logger.LogError("error message", "optional tag1", "optional tag2");
+logger.LogWarning("warning message");
+logger.LogInfo("info message");
+logger.LogDebug("debug message");
+```

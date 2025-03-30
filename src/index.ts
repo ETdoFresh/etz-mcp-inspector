@@ -1,4 +1,6 @@
 import './views/theme-toggle';
+import { ApplicationServiceProvider } from './services/application-service-provider';
+import { Logger } from './services/logger-service';
 
 const message: string = "Hello World";
 
@@ -7,4 +9,5 @@ if (appDiv) {
     appDiv.innerHTML = `<h1>${message}</h1>`;
 }
 
-console.log("Index script loaded."); // Example placeholder 
+const logger = ApplicationServiceProvider.getService(Logger);
+logger?.LogInfo("Index script loaded.", "Index", "Scripting"); 
