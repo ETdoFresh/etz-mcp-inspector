@@ -3,7 +3,6 @@ import './theme-toggle';
 document.addEventListener('DOMContentLoaded', () => {
     const transportSelect = document.getElementById('transport') as HTMLSelectElement | null;
     const commandInput = document.getElementById('command') as HTMLInputElement | null;
-    const argInput = document.getElementById('arg-input') as HTMLInputElement | null;
     const addArgBtn = document.getElementById('add-arg-btn') as HTMLButtonElement | null;
     const argsList = document.getElementById('args-list') as HTMLUListElement | null;
     const testConnectionBtn = document.getElementById('test-connection-btn') as HTMLButtonElement | null;
@@ -18,42 +17,73 @@ document.addEventListener('DOMContentLoaded', () => {
     const toolsErrorMsg = document.getElementById('tools-error-message') as HTMLDivElement | null;
 
     // Early exit if essential elements are missing
-    if (!transportSelect || !commandInput || !argInput || !addArgBtn || !argsList || !testConnectionBtn ||
+    if (!transportSelect || !commandInput || !addArgBtn || !argsList || !testConnectionBtn ||
         !statusIndicator || !errorMessageDiv || !connectingOverlay || !container || !listToolsBtn ||
         !toolsListArea || !toolsListUl || !toolsLoadingMsg || !toolsErrorMsg) {
         console.error("MCP Tester initialization failed: One or more required elements are missing from the DOM.");
         return;
     }
 
-    const currentArgs: string[] = [];
     let isConnected = false;
 
-    // Function to add argument to the list
-    const addArgument = () => {
-        // Null checks already performed at the top level
-        const argValue = argInput.value.trim();
-        if (argValue) {
-            currentArgs.push(argValue);
-            const listItem = document.createElement('li');
-            listItem.textContent = argValue;
-            argsList.appendChild(listItem);
-            argInput.value = ''; // Clear input field
-            argInput.focus();
-        }
-    };
+    // Function to add a new argument input field
+    function addArgumentInput(value = '') {
+        if (!argsList) return; // Guard against argsList being null
+
+        const li = document.createElement('li');
+        li.style.display = 'flex';
+        li.style.alignItems = 'center';
+        li.style.marginBottom = '5px';
+
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.value = value;
+        input.placeholder = 'Enter argument';
+        input.className = 'arg-input-dynamic';
+        input.style.flexGrow = '1';
+        input.style.marginRight = '5px';
+        // Apply existing input styling dynamically if needed (or rely on CSS)
+        input.style.padding = '8px';
+        input.style.border = '1px solid var(--input-border)';
+        input.style.borderRadius = '3px';
+        input.style.backgroundColor = 'var(--input-bg)';
+        input.style.color = 'var(--text-color)';
+
+        const removeBtn = document.createElement('button');
+        removeBtn.textContent = '-';
+        removeBtn.title = 'Remove Argument';
+        removeBtn.className = 'remove-arg-btn';
+        removeBtn.type = 'button';
+        // Apply existing button styling dynamically if needed (or rely on CSS)
+        removeBtn.style.padding = '5px 8px'; // Smaller padding for remove button
+        removeBtn.style.backgroundColor = 'var(--button-bg)';
+        removeBtn.style.color = 'var(--button-text)';
+        removeBtn.style.border = 'none';
+        removeBtn.style.borderRadius = '3px';
+        removeBtn.style.cursor = 'pointer';
+        removeBtn.style.fontSize = '0.9em';
+        removeBtn.style.lineHeight = '1';
+
+
+        removeBtn.addEventListener('click', () => {
+            li.remove();
+        });
+
+        li.appendChild(input);
+        li.appendChild(removeBtn);
+        argsList.appendChild(li);
+        input.focus(); // Focus the newly added input
+    }
 
     // Event listener for the Add Argument button
-    // Null check performed at top level
-    addArgBtn.addEventListener('click', addArgument);
+    addArgBtn.addEventListener('click', () => addArgumentInput());
 
-    // Event listener for pressing Enter in the argument input field
-    // Null check performed at top level
-    argInput.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') {
-            e.preventDefault(); // Prevent form submission if it were in a form
-            addArgument();
-        }
-    });
+    // Function to get all arguments from dynamic inputs
+    function getAllArguments(): string[] {
+        if (!argsList) return [];
+        const inputs = argsList.querySelectorAll<HTMLInputElement>('.arg-input-dynamic');
+        return Array.from(inputs).map(input => input.value.trim()).filter(value => value !== '');
+    }
 
     // Function to simulate testing the connection
     const testConnection = () => {
@@ -75,11 +105,12 @@ document.addEventListener('DOMContentLoaded', () => {
         // Get current values
         const transport = transportSelect.value;
         const command = commandInput.value.trim();
+        const args = getAllArguments(); // Get args using the new function
 
         console.log('Attempting connection with:');
         console.log('Transport:', transport);
         console.log('Command:', command);
-        console.log('Arguments:', currentArgs);
+        console.log('Arguments:', args); // Log the collected args
 
         // --- Simulate asynchronous connection attempt ---
         setTimeout(() => {
