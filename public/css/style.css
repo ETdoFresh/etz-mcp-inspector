@@ -445,13 +445,13 @@ button:disabled {
 }
 
 .server-item-buttons .connect-btn {
-    background-color: var(--success-color);
+    background-color: #006400;  /* Dark green */
     color: white;
     border: none;
 }
 
 .server-item-buttons .connect-btn:hover {
-    background-color: var(--success-hover-color);
+    background-color: #008000;  /* Slightly lighter dark green */
     transform: scale(1.05);
 }
 
@@ -496,7 +496,7 @@ button:disabled {
 }
 
 .server-item.connected {
-    background-color: var(--success-color);
+    background-color: #006400;  /* Dark green */
     color: white;
 }
 
@@ -539,12 +539,21 @@ button:disabled {
 }
 
 .server-list-item .btn.connect {
-    background-color: #4CAF50;
+    background-color: #006400;  /* Dark green */
     color: white;
 }
 
 .server-list-item .btn.connect:hover {
-    background-color: #45a049;
+    background-color: #008000;  /* Slightly lighter dark green */
+}
+
+.server-list-item .btn.stop {
+    background-color: #8B0000;  /* Dark red */
+    color: white;
+}
+
+.server-list-item .btn.stop:hover {
+    background-color: #A00000;  /* Slightly lighter dark red */
 }
 
 .server-list-item .btn.edit {

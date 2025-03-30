@@ -38,6 +38,7 @@ export class McpUIView {
     private toolsListUl: HTMLUListElement;
     private toolsLoadingMsg: HTMLDivElement;
     private toolsErrorMsg: HTMLDivElement;
+    private notConnectedMsg: HTMLDivElement;
     private toolExecutionArea: HTMLDivElement;
     private selectedToolNameSpan: HTMLSpanElement;
     private toolParamsForm: HTMLFormElement;
@@ -77,6 +78,7 @@ export class McpUIView {
         this.toolsListUl = this.getElement('tools-list', HTMLUListElement);
         this.toolsLoadingMsg = this.getElement('tools-loading-message', HTMLDivElement);
         this.toolsErrorMsg = this.getElement('tools-error-message', HTMLDivElement);
+        this.notConnectedMsg = this.getElement('not-connected-message', HTMLDivElement);
         this.toolExecutionArea = this.getElement('tool-execution-area', HTMLDivElement);
         this.selectedToolNameSpan = this.getElement('selected-tool-name', HTMLSpanElement);
         this.toolParamsForm = this.getElement('tool-params-form', HTMLFormElement);
@@ -316,9 +318,10 @@ export class McpUIView {
 
         // Column 2
         this.listToolsBtn.disabled = true;
-        this.toolsListArea.style.display = 'none';
+        this.toolsListArea.style.display = 'block';
         this.toolsLoadingMsg.style.display = 'none';
         this.toolsErrorMsg.style.display = 'none';
+        this.notConnectedMsg.style.display = 'block';
         this.toolsListUl.innerHTML = '';
 
         // Column 3
@@ -352,11 +355,13 @@ export class McpUIView {
             this.statusIndicator.className = 'status-indicator connected';
             this.listToolsBtn.disabled = false;
             this.listToolsBtn.style.display = 'block'; // Show the list tools button
+            this.notConnectedMsg.style.display = 'none';
             this.clearError('col1'); // Clear connection-related errors
         } else {
             this.statusIndicator.className = 'status-indicator error';
             this.listToolsBtn.disabled = true;
             this.listToolsBtn.style.display = 'none'; // Hide the list tools button
+            this.notConnectedMsg.style.display = 'block';
             this.clearToolListAndExecution(); // Clear cols 2/3 on disconnect/failure
         }
         this.testConnectionBtn.disabled = !this.currentSelectedServerId;
@@ -437,13 +442,14 @@ export class McpUIView {
     public showFetchingTools(): void {
         this.clearError('col2'); // Clear previous tool errors
         this.toolsListArea.style.display = 'block';
+        this.notConnectedMsg.style.display = 'none';
         this.toolsLoadingMsg.textContent = 'Fetching tools...';
         this.toolsLoadingMsg.style.display = 'block';
         this.toolsListUl.innerHTML = '';
         this.toolExecutionArea.style.display = 'none';
         this.toolSelectPrompt.style.display = 'block';
         this.toolResultArea.style.display = 'none';
-         this.isListingToolsState = true;
+        this.isListingToolsState = true;
     }
 
     // Check if UI is currently in the process of listing tools
@@ -731,9 +737,10 @@ export class McpUIView {
 
     // NEW Helper: Clear Columns 2 & 3 on disconnect/server change
     public clearToolListAndExecution(): void {
-        this.toolsListArea.style.display = 'none';
+        this.toolsListArea.style.display = 'block';
         this.toolsListUl.innerHTML = '';
         this.toolsErrorMsg.style.display = 'none';
+        this.notConnectedMsg.style.display = 'block';
         this.toolExecutionArea.style.display = 'none';
         this.toolSelectPrompt.style.display = 'block';
         this.toolResultArea.style.display = 'none';
