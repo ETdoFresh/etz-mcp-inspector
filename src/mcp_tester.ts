@@ -1,25 +1,34 @@
 document.addEventListener('DOMContentLoaded', () => {
-    const transportSelect = document.getElementById('transport');
-    const commandInput = document.getElementById('command');
-    const argInput = document.getElementById('arg-input');
-    const addArgBtn = document.getElementById('add-arg-btn');
-    const argsList = document.getElementById('args-list');
-    const testConnectionBtn = document.getElementById('test-connection-btn');
-    const statusIndicator = document.getElementById('status-indicator');
-    const errorMessageDiv = document.getElementById('error-message');
-    const connectingOverlay = document.getElementById('connecting-overlay');
-    const container = document.getElementById('mcp-tester-container');
-    const listToolsBtn = document.getElementById('list-tools-btn');
-    const toolsListArea = document.getElementById('tools-list-area');
-    const toolsListUl = document.getElementById('tools-list');
-    const toolsLoadingMsg = document.getElementById('tools-loading-message');
-    const toolsErrorMsg = document.getElementById('tools-error-message');
+    const transportSelect = document.getElementById('transport') as HTMLSelectElement | null;
+    const commandInput = document.getElementById('command') as HTMLInputElement | null;
+    const argInput = document.getElementById('arg-input') as HTMLInputElement | null;
+    const addArgBtn = document.getElementById('add-arg-btn') as HTMLButtonElement | null;
+    const argsList = document.getElementById('args-list') as HTMLUListElement | null;
+    const testConnectionBtn = document.getElementById('test-connection-btn') as HTMLButtonElement | null;
+    const statusIndicator = document.getElementById('status-indicator') as HTMLSpanElement | null;
+    const errorMessageDiv = document.getElementById('error-message') as HTMLDivElement | null;
+    const connectingOverlay = document.getElementById('connecting-overlay') as HTMLDivElement | null;
+    const container = document.getElementById('mcp-tester-container') as HTMLDivElement | null;
+    const listToolsBtn = document.getElementById('list-tools-btn') as HTMLButtonElement | null;
+    const toolsListArea = document.getElementById('tools-list-area') as HTMLDivElement | null;
+    const toolsListUl = document.getElementById('tools-list') as HTMLUListElement | null;
+    const toolsLoadingMsg = document.getElementById('tools-loading-message') as HTMLDivElement | null;
+    const toolsErrorMsg = document.getElementById('tools-error-message') as HTMLDivElement | null;
 
-    const currentArgs = [];
+    // Early exit if essential elements are missing
+    if (!transportSelect || !commandInput || !argInput || !addArgBtn || !argsList || !testConnectionBtn ||
+        !statusIndicator || !errorMessageDiv || !connectingOverlay || !container || !listToolsBtn ||
+        !toolsListArea || !toolsListUl || !toolsLoadingMsg || !toolsErrorMsg) {
+        console.error("MCP Tester initialization failed: One or more required elements are missing from the DOM.");
+        return;
+    }
+
+    const currentArgs: string[] = [];
     let isConnected = false;
 
     // Function to add argument to the list
     const addArgument = () => {
+        // Null checks already performed at the top level
         const argValue = argInput.value.trim();
         if (argValue) {
             currentArgs.push(argValue);
@@ -32,9 +41,11 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     // Event listener for the Add Argument button
+    // Null check performed at top level
     addArgBtn.addEventListener('click', addArgument);
 
     // Event listener for pressing Enter in the argument input field
+    // Null check performed at top level
     argInput.addEventListener('keypress', (e) => {
         if (e.key === 'Enter') {
             e.preventDefault(); // Prevent form submission if it were in a form
@@ -44,6 +55,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Function to simulate testing the connection
     const testConnection = () => {
+        // Null checks performed at top level
         // 1. Reset status
         isConnected = false;
         statusIndicator.className = 'status-indicator'; // Reset to default
@@ -67,11 +79,13 @@ document.addEventListener('DOMContentLoaded', () => {
         console.log('Command:', command);
         console.log('Arguments:', currentArgs);
 
-        // --- Simulate asynchronous connection attempt --- 
+        // --- Simulate asynchronous connection attempt ---
         setTimeout(() => {
             const isSuccess = Math.random() > 0.3; // 70% chance of success for demo
 
-            // 3. Unlock UI and hide overlay
+            // 3. Unlock UI and hide overlay (check elements again just in case, though unlikely needed after top check)
+            if (!connectingOverlay || !container || !testConnectionBtn || !addArgBtn || !statusIndicator || !errorMessageDiv || !listToolsBtn) return;
+
             connectingOverlay.style.display = 'none';
             container.classList.remove('locked');
             testConnectionBtn.disabled = false;
@@ -91,11 +105,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 listToolsBtn.style.display = 'none';
             }
         }, 2000); // Simulate a 2-second connection attempt
-        // --- End simulation --- 
+        // --- End simulation ---
     };
 
     // --- Function to simulate listing tools ---
     const listTools = () => {
+        // Null checks performed at top level
         if (!isConnected) {
             toolsErrorMsg.textContent = 'Error: Not connected to server.';
             toolsErrorMsg.style.display = 'block';
@@ -117,6 +132,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Simulate async fetch
         setTimeout(() => {
+            // Check elements again before manipulating in async callback
+             if (!toolsLoadingMsg || !listToolsBtn || !toolsErrorMsg || !toolsListUl) return;
+
             const fetchSuccess = Math.random() > 0.2; // 80% chance of success for demo
 
             toolsLoadingMsg.style.display = 'none';
@@ -152,8 +170,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- End list tools function ---
 
     // Event listener for the Test Connection button
+    // Null check performed at top level
     testConnectionBtn.addEventListener('click', testConnection);
 
     // Event listener for the List Tools button
+    // Null check performed at top level
     listToolsBtn.addEventListener('click', listTools);
 }); 
