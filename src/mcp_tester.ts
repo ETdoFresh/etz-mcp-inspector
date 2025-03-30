@@ -327,17 +327,37 @@ document.addEventListener('DOMContentLoaded', () => {
                 toolInfo.innerHTML = `<strong>${tool.name}:</strong> ${tool.description}`;
                 li.appendChild(toolInfo);
 
-                if (tool.inputSchema && tool.inputSchema.length > 0) {
-                    const paramsUl = document.createElement('ul');
-                    paramsUl.style.cssText = 'margin-left: 20px; margin-top: 5px; list-style-type: circle;';
-                    tool.inputSchema.forEach((param: ToolParameter) => {
-                        const paramLi = document.createElement('li');
-                        paramLi.style.cssText = 'font-size: 0.9em; margin-bottom: 3px;';
-                        const requiredStar = param.required ? '<span style="color:red;" title="Required">*</span>' : '';
-                        paramLi.innerHTML = `<em>${param.name} (${param.type || 'any'})${requiredStar}</em>: ${param.description}`;
-                        paramsUl.appendChild(paramLi);
-                    });
-                    li.appendChild(paramsUl);
+                // Updated logic to handle inputSchema as a JSON Schema object
+                if (tool.inputSchema && typeof tool.inputSchema === 'object' && tool.inputSchema.properties) {
+                    const properties = tool.inputSchema.properties as { [key: string]: any };
+                    const requiredParams = tool.inputSchema.required || [];
+                    const paramNames = Object.keys(properties);
+
+                    if (paramNames.length > 0) {
+                        const paramsUl = document.createElement('ul');
+                        paramsUl.style.cssText = 'margin-left: 20px; margin-top: 5px; list-style-type: circle;';
+
+                        paramNames.forEach((paramName) => {
+                            const paramSchema = properties[paramName];
+                            const isRequired = requiredParams.includes(paramName);
+                            const paramType = paramSchema.type || 'any';
+                            const paramDescription = paramSchema.description || ''; // Get description if available
+
+                            const paramLi = document.createElement('li');
+                            paramLi.style.cssText = 'font-size: 0.9em; margin-bottom: 3px;';
+                            const requiredStar = isRequired ? '<span style="color:red;" title="Required">*</span>' : '';
+                            // Display name, type, required status, and description
+                            paramLi.innerHTML = `<em>${paramName} (${paramType})${requiredStar}</em>: ${paramDescription}`;
+                            paramsUl.appendChild(paramLi);
+                        });
+                        li.appendChild(paramsUl);
+                    } else {
+                         // Optional: Add a note if schema/properties exist but are empty
+                         const noParamsMsg = document.createElement('div');
+                         noParamsMsg.textContent = ' (No input parameters defined)';
+                         noParamsMsg.style.cssText = 'font-size: 0.9em; font-style: italic; margin-left: 20px;';
+                         li.appendChild(noParamsMsg);
+                    }
                 }
                 li.addEventListener('click', () => handleToolSelect(index));
                 toolsListUl!.appendChild(li);
