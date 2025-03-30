@@ -5,8 +5,9 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "build": "tsc",
-    "start": "http-server . -o"
+    "build": "webpack",
+    "start": "http-server . -o",
+    "dev": "webpack serve --mode development --hot"
   },
   "keywords": [],
   "author": "",
