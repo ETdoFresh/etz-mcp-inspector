@@ -49,7 +49,7 @@ document.addEventListener('DOMContentLoaded', () => {
     interface ToolDefinition {
         name: string;
         description: string;
-        parameters?: ToolParameter[];
+        inputSchema?: any; // Add the actual field (using any for simplicity, could be more specific JSONSchema type)
     }
     // --- End Interfaces ---
 
@@ -194,25 +194,107 @@ document.addEventListener('DOMContentLoaded', () => {
         console.log(`Handling message type: ${message.type}`, message.payload);
 
         switch (message.type) {
-            case 'toolListResponse': updateToolList(message.payload.tools || []); break;
-            case 'toolExecutionResult': displayToolResult(message.payload); break;
-            case 'connectionStatus': // Update based on spawned client status
-                console.log('Client Connection status update:', message.payload);
+            // --- Direct messages from the proxy --- //
+            case 'connectionStatus': // Update based on spawned client status OR proxy connection itself
+                console.log('Connection status update:', message.payload);
                 if (message.payload.status === 'error') {
                      statusIndicator!.className = 'status-indicator error';
-                     errorMessageDiv!.textContent = `Client connection error: ${message.payload.error || 'Unknown error'}`;
+                     errorMessageDiv!.textContent = `Connection error: ${message.payload.error || 'Unknown error'}`;
                      errorMessageDiv!.style.display = 'block';
                      listToolsBtn!.style.display = 'none'; listToolsBtn!.disabled = true;
-                     isConnected = false; // Backend proxy reported client disconnected/errored
-                     if (eventSource) { console.log("Closing SSE due to client error report."); eventSource.close(); eventSource = null; }
+                     isConnected = false; // Backend proxy reported client disconnected/errored OR initial connection failed
+                     // Close SSE connection if the error originated from the proxy/process management
+                     if (message.payload.error && !message.payload.error.startsWith('stderr:')) { // Don't close for stderr messages
+                         if (eventSource) { console.log("Closing SSE due to critical error report."); eventSource.close(); eventSource = null; }
+                     }
                 } else if (message.payload.status === 'connected') {
                      statusIndicator!.className = 'status-indicator connected';
                      listToolsBtn!.style.display = 'inline-block'; listToolsBtn!.disabled = false;
+                     errorMessageDiv!.style.display = 'none'; // Clear previous errors on successful connect
                      isConnected = true;
+                } else if (message.payload.status === 'disconnected') {
+                     statusIndicator!.className = 'status-indicator';
+                     errorMessageDiv!.textContent = `Client process disconnected (Code: ${message.payload.code ?? 'N/A'}). Please test connection again.`;
+                     errorMessageDiv!.style.display = 'block';
+                     listToolsBtn!.style.display = 'none'; listToolsBtn!.disabled = true;
+                     toolExecutionArea!.style.display = 'none';
+                     isConnected = false;
+                     if (eventSource) { console.log("Closing SSE connection as client process ended."); eventSource.close(); eventSource = null; }
                 }
                 break;
-            case 'logMessage': console.log('Server Log:', message.payload); break; // TODO: Log area
-            default: console.warn('Unhandled SSE message type:', message.type);
+            case 'logMessage':
+                console.log(`Server Log (${message.payload.source}):`, message.payload.content);
+                // Optional: Display logs in a dedicated area in the UI
+                // We might want to display stderr logs more prominently
+                if (message.payload.source === 'stderr') {
+                    // Append to error message div or a dedicated log area
+                    const logEntry = document.createElement('div');
+                    logEntry.textContent = `[STDERR] ${message.payload.content}`;
+                    logEntry.style.whiteSpace = 'pre-wrap'; // Preserve formatting
+                    logEntry.style.color = 'orange'; // Distinguish stderr logs
+                    // Append to a log container if exists, otherwise maybe error div
+                    // Example: document.getElementById('log-output')?.appendChild(logEntry);
+                    // For now, let's append to the main error display, but this could get noisy
+                    // errorMessageDiv!.textContent += `\n[STDERR] ${message.payload.content}`;
+                    // errorMessageDiv!.style.display = 'block';
+                }
+                break;
+             case 'commandError': // Error reported from backend when trying to POST command to MCP
+                console.error(`Backend command error for type ${message.payload.type}:`, message.payload.error);
+                errorMessageDiv!.textContent = `Backend Error: Failed to send command '${message.payload.type}' to MCP process. ${message.payload.error}`;
+                errorMessageDiv!.style.display = 'block';
+                // Potentially disable execute button again if this happens
+                executeToolBtn!.disabled = true;
+                toolExecutingMsg!.style.display = 'none'; // Added !
+                break;
+
+            // --- Messages originating from the MCP process (parsed & wrapped by proxy) --- //
+            case 'mcpMessage':
+                console.log('Received wrapped MCP message:', message.payload);
+                handleMcpProcessMessage(message.payload);
+                break;
+
+            default:
+                console.warn('Unhandled SSE message type from proxy:', message.type);
+        }
+    }
+
+    // New function to handle messages *from* the MCP process itself (JSON-RPC responses/notifications)
+    function handleMcpProcessMessage(mcpData: any) {
+        // Assuming MCP uses a structure like JSON-RPC with result/error or method/params
+        if (mcpData.result !== undefined || mcpData.error !== undefined) {
+             // This looks like a JSON-RPC Response
+             console.log(`Handling MCP Response (ID: ${mcpData.id})`);
+             // We need to correlate this response to a request (e.g., listTools, executeTool)
+
+             // Check specifically for the tools/list response structure
+             if (mcpData.result && Array.isArray(mcpData.result.tools)) {
+                 // This IS the response to 'tools/list'
+                 updateToolList(mcpData.result.tools as ToolDefinition[]);
+             } else if (mcpData.result) {
+                 // Likely the response to 'executeTool' (success)
+                 // (Or some other method returning a non-array/non-tools result)
+                 displayToolResult({ status: 'success', data: mcpData.result });
+             } else if (mcpData.error) {
+                 // Likely the response to 'executeTool' (error)
+                 console.error('MCP Error Response:', mcpData.error);
+                 displayToolResult({ status: 'error', message: mcpData.error.message || 'Unknown MCP Error', details: mcpData.error.data });
+             } else {
+                 console.warn('Unhandled MCP Response format:', mcpData);
+             }
+        } else if (mcpData.method) {
+             // This looks like a JSON-RPC Notification (server->client without request)
+             console.log(`Handling MCP Notification (Method: ${mcpData.method})`);
+             // Add specific handlers here if the MCP server sends notifications
+             // switch (mcpData.method) {
+             //    case 'someNotification':
+             //        // handle
+             //        break;
+             // }
+        } else {
+            console.warn('Received unknown data structure from MCP via proxy:', mcpData);
+            // Maybe display as raw log?
+            // sendSseMessage({response: null, id:'mcp', mcpProcess: null}, 'logMessage', { source: 'mcp_raw', content: JSON.stringify(mcpData) });
         }
     }
 
@@ -221,8 +303,8 @@ document.addEventListener('DOMContentLoaded', () => {
         toolsErrorMsg.style.display = 'none';
         toolsLoadingMsg!.textContent = 'Fetching tools...'; toolsLoadingMsg!.style.display = 'block';
         listToolsBtn!.disabled = true;
-        toolExecutionArea.style.display = 'none';
-        sendRequestToBackend('listTools', {});
+        toolExecutionArea!.style.display = 'none';
+        sendRequestToBackend('tools/list', {});
     };
 
     function updateToolList(tools: ToolDefinition[]) {
@@ -245,10 +327,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 toolInfo.innerHTML = `<strong>${tool.name}:</strong> ${tool.description}`;
                 li.appendChild(toolInfo);
 
-                if (tool.parameters && tool.parameters.length > 0) {
+                if (tool.inputSchema && tool.inputSchema.length > 0) {
                     const paramsUl = document.createElement('ul');
                     paramsUl.style.cssText = 'margin-left: 20px; margin-top: 5px; list-style-type: circle;';
-                    tool.parameters.forEach((param: ToolParameter) => {
+                    tool.inputSchema.forEach((param: ToolParameter) => {
                         const paramLi = document.createElement('li');
                         paramLi.style.cssText = 'font-size: 0.9em; margin-bottom: 3px;';
                         const requiredStar = param.required ? '<span style="color:red;" title="Required">*</span>' : '';
@@ -275,8 +357,8 @@ document.addEventListener('DOMContentLoaded', () => {
         executeToolBtn.disabled = !isConnected; // Should be connected to execute
         toolExecutingMsg.style.display = 'none';
 
-        if (selectedTool.parameters && selectedTool.parameters.length > 0) {
-            selectedTool.parameters.forEach((param: ToolParameter) => {
+        if (selectedTool.inputSchema && selectedTool.inputSchema.length > 0) {
+            selectedTool.inputSchema.forEach((param: ToolParameter) => {
                 const div = document.createElement('div'); div.className = 'form-group';
                 const label = document.createElement('label');
                 const requiredStar = param.required ? '<span style="color:red;" title="Required">*</span>' : '';
@@ -323,7 +405,7 @@ ${param.description}`;
 
         const formData = new FormData(toolParamsForm);
         const params: { [key: string]: any } = {};
-        selectedTool.parameters?.forEach((param: ToolParameter) => {
+        selectedTool.inputSchema?.forEach((param: ToolParameter) => {
             const value = formData.get(param.name) as string | null;
             if (value !== null && value !== '') { // Only include params with values
                  if (param.type === 'number') { params[param.name] = parseFloat(value); }

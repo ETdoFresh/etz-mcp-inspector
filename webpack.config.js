@@ -1,6 +1,7 @@
 const path = require('path');
 const fs = require('fs'); // Require the file system module
 const HtmlWebpackPlugin = require('html-webpack-plugin');
+const { mcpProxyHandler } = require('./src/mcp_proxy_handler.js'); // Import the JS handler
 
 // Define your entry points
 const entryPoints = {
@@ -52,6 +53,21 @@ module.exports = {
   devServer: {
     static: './public', // Serve static files from the public directory
     hot: true,
+    // Add the setupMiddlewares configuration
+    setupMiddlewares: (middlewares, devServer) => {
+      if (!devServer) {
+        throw new Error('webpack-dev-server is not defined');
+      }
+
+      // Add our custom middleware BEFORE the default middlewares
+      // Let the middleware function handle the path check internally
+      middlewares.unshift({
+        name: 'mcp-proxy-middleware',
+        middleware: mcpProxyHandler,
+      });
+
+      return middlewares;
+    },
   },
   module: {
     rules: [
