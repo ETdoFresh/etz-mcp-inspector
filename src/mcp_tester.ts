@@ -1,6 +1,11 @@
 import './theme-toggle';
 
 document.addEventListener('DOMContentLoaded', () => {
+    // --- localStorage Keys ---
+    const LS_TRANSPORT_KEY = 'mcpTesterTransport';
+    const LS_COMMAND_KEY = 'mcpTesterCommand';
+    const LS_ARGS_KEY = 'mcpTesterArgs';
+
     // --- UI Elements --- Get all elements first
     const transportSelect = document.getElementById('transport') as HTMLSelectElement | null;
     const commandInput = document.getElementById('command') as HTMLInputElement | null;
@@ -24,6 +29,29 @@ document.addEventListener('DOMContentLoaded', () => {
     const toolResultOutput = document.getElementById('tool-result-output') as HTMLPreElement | null;
     const toolResultError = document.getElementById('tool-result-error') as HTMLDivElement | null;
     const toolExecutingMsg = document.getElementById('tool-executing-message') as HTMLDivElement | null;
+
+    // --- Load Settings from localStorage ---
+    const savedTransport = localStorage.getItem(LS_TRANSPORT_KEY);
+    if (savedTransport && transportSelect) {
+        transportSelect.value = savedTransport;
+    }
+    const savedCommand = localStorage.getItem(LS_COMMAND_KEY);
+    if (savedCommand && commandInput) {
+        commandInput.value = savedCommand;
+    }
+    const savedArgsString = localStorage.getItem(LS_ARGS_KEY);
+    if (savedArgsString && argsList) {
+        try {
+            const savedArgs = JSON.parse(savedArgsString);
+            if (Array.isArray(savedArgs)) {
+                argsList.innerHTML = ''; // Clear any default HTML
+                savedArgs.forEach(arg => addArgumentInput(arg));
+            }
+        } catch (e) {
+            console.error("Failed to parse saved arguments from localStorage:", e);
+            localStorage.removeItem(LS_ARGS_KEY); // Clear invalid data
+        }
+    }
 
     // --- Check all elements --- Fail early if any are missing
     if (!transportSelect || !commandInput || !addArgBtn || !argsList || !testConnectionBtn ||
@@ -377,7 +405,75 @@ document.addEventListener('DOMContentLoaded', () => {
         executeToolBtn.disabled = !isConnected; // Should be connected to execute
         toolExecutingMsg.style.display = 'none';
 
-        if (selectedTool.inputSchema && selectedTool.inputSchema.length > 0) {
+        // Updated logic to handle inputSchema as a JSON Schema object
+        if (selectedTool.inputSchema && typeof selectedTool.inputSchema === 'object' && selectedTool.inputSchema.properties) {
+            const properties = selectedTool.inputSchema.properties as { [key: string]: any };
+            const requiredParams = new Set(selectedTool.inputSchema.required || []);
+            const paramNames = Object.keys(properties);
+
+            if (paramNames.length > 0) {
+                paramNames.forEach((paramName) => {
+                    const paramSchema = properties[paramName];
+                    const isRequired = requiredParams.has(paramName);
+                    const paramType = paramSchema.type || 'any'; // Default to 'any' if type is missing
+                    const paramDescription = paramSchema.description || '';
+
+                    const div = document.createElement('div'); div.className = 'form-group';
+                    const label = document.createElement('label');
+                    const requiredStar = isRequired ? '<span style="color:red;" title="Required">*</span>' : '';
+                    label.innerHTML = `${paramName} (${paramType})${requiredStar}:`;
+                    label.htmlFor = `param-${paramName}`; label.title = paramDescription;
+
+                    let inputElement: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
+                    const commonStyle = 'width: 100%; padding: 8px; border: 1px solid var(--input-border); border-radius: 3px; background-color: var(--input-bg); color: var(--text-color); margin-top: 5px; box-sizing: border-box;';
+
+                    if (paramSchema.type === 'boolean') {
+                        inputElement = document.createElement('select');
+                        const optionTrue = document.createElement('option'); optionTrue.value = 'true'; optionTrue.text = 'True';
+                        const optionFalse = document.createElement('option'); optionFalse.value = 'false'; optionFalse.text = 'False';
+                        inputElement.appendChild(optionFalse);
+                        inputElement.appendChild(optionTrue);
+                        // Set default if specified
+                        if (paramSchema.default !== undefined) {
+                            inputElement.value = String(paramSchema.default);
+                        }
+                    } else if (paramSchema.type === 'array' || (paramDescription || '').toLowerCase().includes('multiline')) {
+                        inputElement = document.createElement('textarea'); inputElement.rows = 3;
+                        const itemType = paramSchema.items?.type || 'string'; // Get item type for arrays
+                        inputElement.placeholder = `Enter ${paramSchema.type === 'array' ? 'comma-separated ' + itemType + 's' : 'value'}...
+${paramDescription}`;
+                         // Set default if specified and is array
+                        if (paramSchema.default !== undefined && Array.isArray(paramSchema.default)) {
+                             inputElement.value = paramSchema.default.join(', ');
+                         }
+                    } else {
+                        inputElement = document.createElement('input');
+                        inputElement.type = (paramSchema.type === 'number' || paramSchema.type === 'integer') ? 'number' : 'text';
+                        inputElement.placeholder = `Enter ${paramName}... (${paramDescription})`;
+                        // Set default if specified
+                        if (paramSchema.default !== undefined) {
+                             inputElement.value = String(paramSchema.default);
+                         }
+                    }
+                    inputElement.id = `param-${paramName}`; inputElement.name = paramName;
+                    inputElement.required = isRequired;
+                    inputElement.style.cssText = commonStyle;
+
+                     // Add step attribute for number/integer types if needed (e.g., for integer)
+                    if (inputElement instanceof HTMLInputElement && (paramSchema.type === 'number' || paramSchema.type === 'integer')) {
+                        inputElement.step = paramSchema.type === 'integer' ? '1' : 'any'; // Allow decimals for 'number', integers for 'integer'
+                    }
+
+                    div.appendChild(label); div.appendChild(inputElement);
+                    toolParamsForm.appendChild(div);
+                });
+            } else {
+                toolParamsForm.innerHTML = '<p><em>This tool takes no parameters (schema properties empty).</em></p>';
+            }
+
+        } else if (selectedTool.inputSchema && Array.isArray(selectedTool.inputSchema)) {
+             // --- Keep the old array-based logic as a fallback (might remove later) ---
+            console.warn("Using legacy array-based inputSchema handling for tool:", selectedTool.name);
             selectedTool.inputSchema.forEach((param: ToolParameter) => {
                 const div = document.createElement('div'); div.className = 'form-group';
                 const label = document.createElement('label');
@@ -404,6 +500,7 @@ ${param.description}`;
                 div.appendChild(label); div.appendChild(inputElement);
                 toolParamsForm.appendChild(div);
             });
+            // --- End fallback array logic ---
         } else {
             toolParamsForm.innerHTML = '<p><em>This tool takes no parameters.</em></p>';
         }
@@ -425,17 +522,38 @@ ${param.description}`;
 
         const formData = new FormData(toolParamsForm);
         const params: { [key: string]: any } = {};
-        selectedTool.inputSchema?.forEach((param: ToolParameter) => {
-            const value = formData.get(param.name) as string | null;
-            if (value !== null && value !== '') { // Only include params with values
-                 if (param.type === 'number') { params[param.name] = parseFloat(value); }
-                 else if (param.type === 'boolean') { params[param.name] = value.toLowerCase() === 'true'; }
-                 else if (param.type === 'array') { params[param.name] = value.split(',').map(s => s.trim()); }
-                 else { params[param.name] = value; }
-            }
-        });
 
-        sendRequestToBackend('executeTool', { toolName: selectedTool.name, params });
+        // Updated logic: Collect params based on JSON Schema properties
+        if (selectedTool.inputSchema && typeof selectedTool.inputSchema === 'object' && selectedTool.inputSchema.properties) {
+            const properties = selectedTool.inputSchema.properties as { [key: string]: any };
+            Object.keys(properties).forEach((paramName) => {
+                const paramSchema = properties[paramName];
+                const value = formData.get(paramName) as string | null; // Get value from form data
+
+                if (value !== null && value !== '') { // Only include params with values
+                    const paramType = paramSchema.type || 'string'; // Default to string if type is missing
+
+                    if (paramType === 'number' || paramType === 'integer') {
+                        params[paramName] = parseFloat(value); // Use parseFloat for numbers
+                    } else if (paramType === 'boolean') {
+                        params[paramName] = value.toLowerCase() === 'true';
+                    } else if (paramType === 'array') {
+                        // Split by comma, trim whitespace from each item, filter out empty strings
+                        params[paramName] = value.split(',').map(s => s.trim()).filter(s => s !== '');
+                    } else { // Default to string
+                        params[paramName] = value;
+                    }
+                }
+                // No need to handle 'required' here, the form validation does that.
+                // If a required field is empty, checkValidity() would have returned false earlier.
+            });
+        } else {
+             // Log if schema is missing or not in the expected object format
+             console.warn("Cannot collect parameters: Tool inputSchema is missing, not an object, or has no properties.", selectedTool.inputSchema);
+        }
+
+        // Use the correct MCP method name 'tools/call' and the correct parameter structure
+        sendRequestToBackend('tools/call', { name: selectedTool.name, arguments: params });
     };
 
     function displayToolResult(result: any) {
@@ -465,9 +583,25 @@ Details: ${detailsString}`;
         toolResultArea!.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
 
-    // --- Event Listeners ---
+    // --- Event Listeners --- Add listeners to save settings
+    transportSelect.addEventListener('change', () => {
+        localStorage.setItem(LS_TRANSPORT_KEY, transportSelect.value);
+    });
+    commandInput.addEventListener('input', () => { // Use 'input' for real-time saving
+        localStorage.setItem(LS_COMMAND_KEY, commandInput.value);
+    });
+
     addArgBtn.addEventListener('click', () => addArgumentInput());
-    testConnectionBtn.addEventListener('click', testConnection);
+
+    // Modify testConnection listener to save args *before* connecting
+    testConnectionBtn.addEventListener('click', () => {
+        // Save current arguments before attempting connection
+        const currentArgs = getAllArguments();
+        localStorage.setItem(LS_ARGS_KEY, JSON.stringify(currentArgs));
+        // Now proceed with the connection logic
+        testConnection();
+    });
+
     listToolsBtn.addEventListener('click', listTools);
     executeToolBtn.addEventListener('click', executeTool);
     toolParamsForm.addEventListener('submit', (e) => { e.preventDefault(); executeTool(); });
