@@ -1,51 +1,49 @@
 /* Basic Reset & Body Styling */
 
 :root {
-  --background-color: #ffffff;
-  --text-color: #333333;
-  --link-color: #007bff;
+  --primary-bg: #fff;
+  --secondary-bg: #f9f9f9;
+  --text-color: #333;
+  --border-color: #ddd;
   --button-bg: #007bff;
-  --button-text: #ffffff;
+  --button-text: #fff;
   --button-hover-bg: #0056b3;
-  --container-bg: #f9f9f9;
-  --input-border: #ccc;
-  --input-bg: #ffffff;
-  --list-item-bg: #e9ecef;
-  --list-border: #eee;
-  --status-neutral: #bbb;
-  --status-connected: #28a745;
-  --status-error: #dc3545;
+  --error-color: #dc3545;
+  --success-color: #28a745;
+  --indicator-pending: #ffc107;
+  --indicator-connected: #28a745;
+  --indicator-error: #dc3545;
+  --link-color: #007bff;
   --toggle-icon: '🌙'; /* Default is moon for light mode */
 }
 
 [data-theme='dark'] {
-  --background-color: #1a1a1a;
-  --text-color: #e0e0e0;
-  --link-color: #64b5f6;
-  --button-bg: #1e88e5;
-  --button-text: #ffffff;
-  --button-hover-bg: #0d47a1;
-  --container-bg: #2c2c2c;
-  --input-border: #555555;
-  --input-bg: #333333;
-  --list-item-bg: #424242;
-  --list-border: #444;
-  --status-neutral: #777;
-  --status-connected: #66bb6a;
-  --status-error: #ef5350;
+  --primary-bg: #222;
+  --secondary-bg: #333;
+  --text-color: #eee;
+  --border-color: #555;
+  --button-bg: #007bff;
+  --button-text: #fff;
+  --button-hover-bg: #0056b3;
+  --error-color: #f8d7da;
+  --success-color: #d4edda;
+  --indicator-pending: #fff3cd;
+  --indicator-connected: #d4edda;
+  --indicator-error: #f8d7da;
+  --link-color: #6bb9ff;
   --toggle-icon: '☀️'; /* Sun for dark mode */
 }
 
 * {
+  box-sizing: border-box;
   margin: 0;
   padding: 0;
-  box-sizing: border-box; /* Makes width/height include padding and border */
 }
 
 body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol"; /* Modern system font stack */
   line-height: 1.6;
-  background-color: var(--background-color);
+  background-color: var(--primary-bg);
   color: var(--text-color);
   padding: 20px; /* Add some padding around the content */
   font-size: 16px; /* Base font size */
@@ -69,18 +67,19 @@ a:hover {
 /* Theme Toggle Button Styling */
 #theme-toggle {
     position: fixed;
-    top: 15px;
-    right: 15px;
+    top: 10px;
+    right: 10px;
     background: none;
-    border: 1px solid var(--input-border);
+    border: 1px solid var(--border-color);
     color: var(--text-color);
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
     cursor: pointer;
     font-size: 1.2em;
-    padding: 5px 8px;
-    border-radius: 5px;
-    z-index: 1000; /* Ensure it's above other content */
-    line-height: 1;
-    transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
+    line-height: 30px; /* Center icon vertically */
+    text-align: center;
+    padding: 0;
 }
 
 #theme-toggle::before {
@@ -89,102 +88,298 @@ a:hover {
 }
 
 #theme-toggle:hover {
-    background-color: var(--container-bg);
+    background-color: var(--secondary-bg);
 }
 
 /* Styles specific to mcp_tester.html (moved from inline) */
 /* Note: Some styles might be redundant or conflict with the general styles above. */
 /* These may need refinement. */
 
-.container {
-    max-width: 500px;
-    margin: auto;
+.mcp-tester-wrapper { /* Replaced .container with specific wrapper */
+    max-width: 1400px;
+    margin: 20px auto;
     padding: 20px;
-    border: 1px solid var(--input-border);
-    border-radius: 5px;
-    background-color: var(--container-bg);
-    transition: background-color 0.3s ease, border-color 0.3s ease;
+    background-color: var(--secondary-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
 }
 
+h1 {
+    text-align: center;
+    margin-bottom: 25px;
+    color: var(--text-color);
+}
+
+/* --- Column Layout --- */
+.column-layout {
+    display: flex;
+    flex-direction: row;
+    gap: 20px; /* Spacing between columns */
+    flex-wrap: wrap; /* Allow wrapping if needed, though media query handles main switch */
+}
+
+.column {
+    flex: 1; /* Each column tries to take equal space */
+    min-width: 300px; /* Minimum width before wrapping or stacking */
+    padding: 15px;
+    border: 1px solid var(--border-color);
+    border-radius: 5px;
+    background-color: var(--primary-bg); /* Slightly different bg for columns */
+}
+
+.column-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.column-header h2 {
+    margin: 0;
+    font-size: 1.3em;
+}
+
+/* Responsive: Stack columns on smaller screens */
+@media (max-width: 900px) { /* Adjust breakpoint as needed */
+    .column-layout {
+        flex-direction: column;
+    }
+    .column {
+        min-width: 100%; /* Full width when stacked */
+    }
+}
+
+/* --- Server List Specific (Column 1) --- */
+.server-list {
+    list-style: none;
+    margin-bottom: 20px;
+    max-height: 300px; /* Example max height */
+    overflow-y: auto; /* Add scroll if list is long */
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+}
+
+.server-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px;
+    border-bottom: 1px solid var(--border-color);
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.server-item:last-child {
+    border-bottom: none;
+}
+
+.server-item:hover {
+    background-color: var(--secondary-bg);
+}
+
+.server-item.selected {
+    background-color: var(--button-bg);
+    color: var(--button-text);
+}
+
+.server-item span { /* Server name */
+    flex-grow: 1;
+    margin-right: 10px;
+}
+
+.server-actions button {
+    margin-left: 5px;
+    padding: 3px 6px;
+    font-size: 0.8em;
+    cursor: pointer;
+}
+
+#add-server-btn {
+    /* Style for the '+' button in the header */
+    padding: 5px 10px;
+}
+
+#connection-details {
+    /* Styles for the form section within column 1 */
+}
+
+/* --- Tool List Specific (Column 2) --- */
+#list-tools-btn {
+    width: 100%;
+    margin-bottom: 15px;
+}
+
+#tools-list {
+    list-style: none;
+    max-height: 400px; /* Adjust as needed */
+    overflow-y: auto;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 5px;
+}
+
+#tools-list li {
+    padding: 8px 10px;
+    cursor: pointer;
+    border-bottom: 1px solid var(--border-color);
+    transition: background-color 0.2s;
+}
+
+#tools-list li:last-child {
+    border-bottom: none;
+}
+
+#tools-list li:hover {
+    background-color: var(--secondary-bg);
+}
+
+#tools-list li.selected {
+    background-color: var(--button-bg);
+    color: var(--button-text);
+}
+
+/* --- Tool Execution Specific (Column 3) --- */
+#tool-execution-area h4 {
+    margin-bottom: 10px;
+}
+
+#tool-params-form label {
+    display: block;
+    margin-bottom: 5px;
+}
+
+#tool-params-form input[type="text"],
+#tool-params-form input[type="number"],
+#tool-params-form select {
+    width: calc(100% - 12px); /* Account for padding */
+    padding: 6px;
+    margin-bottom: 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background-color: var(--primary-bg);
+    color: var(--text-color);
+}
+
+#tool-result-area {
+    margin-top: 15px;
+    padding-top: 15px;
+    border-top: 1px solid var(--border-color);
+}
+
+#tool-result-output {
+    background-color: var(--secondary-bg);
+    padding: 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    max-height: 300px;
+    overflow: auto;
+    white-space: pre-wrap; /* Wrap long lines */
+    word-wrap: break-word;
+}
+
+/* --- General Form & UI Elements (Adapted from original) --- */
 .form-group {
     margin-bottom: 15px;
 }
 
-label {
+.form-group label {
     display: block;
     margin-bottom: 5px;
     font-weight: bold;
 }
 
-input[type="text"],
-select {
-    width: calc(100% - 22px);
-    /* Adjust for padding/border */
+.form-group input[type="text"],
+.form-group select {
+    width: 100%; /* Make inputs take full width of their container */
     padding: 8px;
-    border: 1px solid var(--input-border);
-    border-radius: 3px;
-    box-sizing: border-box;
-    /* Include padding and border in the element's total width and height */
-    background-color: var(--input-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background-color: var(--primary-bg);
     color: var(--text-color);
-    transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
 }
 
-select {
-    width: 100%;
-    /* Select takes full width */
-}
-
-.args-input-group {
-    display: flex;
-    align-items: center;
-}
-
-.args-input-group input[type="text"] {
-    flex-grow: 1;
-    margin-right: 5px;
-}
-
-button {
-    padding: 10px 15px;
-    background-color: var(--button-bg);
-    color: var(--button-text);
-    border: none;
-    border-radius: 3px;
-    cursor: pointer;
-    transition: background-color 0.3s ease;
-}
-
-button:hover {
-    background-color: var(--button-hover-bg);
-}
-
-button:disabled {
-    background-color: #cccccc; /* Keep disabled state simpler */
+.form-group small {
+    display: block;
+    font-size: 0.85em;
     color: #666;
-    cursor: not-allowed;
+    margin-top: 3px;
+}
+
+[data-theme="dark"] .form-group small {
+    color: #bbb;
 }
 
 #args-list {
     list-style: none;
-    padding: 0;
-    margin-top: 10px;
-    max-height: 220px; /* Increased height for ~5 items */
-    overflow-y: auto;
-    border: 1px dashed var(--list-border);
-    padding: 5px;
-    background-color: var(--input-bg);
-    transition: background-color 0.3s ease, border-color 0.3s ease;
+    padding-left: 0;
+    margin-top: 5px;
 }
 
 #args-list li {
-    background-color: var(--list-item-bg);
-    margin-bottom: 3px;
-    padding: 3px 8px;
-    border-radius: 3px;
+    display: flex;
+    align-items: center;
+    margin-bottom: 5px;
+    background-color: var(--primary-bg);
+    padding: 5px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+}
+
+#args-list input[type="text"] {
+    flex-grow: 1;
+    margin-right: 5px;
+    padding: 4px;
     font-size: 0.9em;
-    color: var(--text-color);
-    transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+#args-list button {
+    background: var(--error-color);
+    color: white;
+    border: none;
+    border-radius: 3px;
+    cursor: pointer;
+    padding: 3px 6px;
+    font-size: 0.8em;
+    line-height: 1;
+}
+
+button {
+    background-color: var(--button-bg);
+    color: var(--button-text);
+    border: none;
+    padding: 10px 15px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background-color 0.2s;
+    font-size: 1em;
+}
+
+button:hover:not(:disabled) {
+    background-color: var(--button-hover-bg);
+}
+
+button:disabled {
+    background-color: #ccc;
+    cursor: not-allowed;
+}
+
+#add-arg-btn {
+    padding: 3px 8px;
+    font-size: 1.2em;
+    line-height: 1;
+    margin-left: 5px;
+}
+
+.error-message {
+    color: var(--error-color);
+    background-color: rgba(220, 53, 69, 0.1);
+    border: 1px solid var(--error-color);
+    padding: 10px;
+    border-radius: 4px;
+    margin-top: 10px;
 }
 
 .status-indicator {
@@ -192,49 +387,32 @@ button:disabled {
     width: 12px;
     height: 12px;
     border-radius: 50%;
-    background-color: var(--status-neutral);
-    /* Neutral default */
     margin-left: 10px;
     vertical-align: middle;
-    transition: background-color 0.3s ease;
+    background-color: var(--indicator-pending); /* Default/pending */
 }
 
 .status-indicator.connected {
-    background-color: var(--status-connected);
-    /* Green */
+    background-color: var(--indicator-connected);
 }
 
 .status-indicator.error {
-    background-color: var(--status-error);
-    /* Red */
-}
-
-.error-message {
-    color: var(--status-error);
-    margin-top: 10px;
-    font-size: 0.9em;
-    display: none;
-    /* Hidden by default */
+    background-color: var(--indicator-error);
 }
 
 .connecting-overlay {
-    position: absolute;
+    position: fixed; /* Or absolute if container is relative */
     top: 0;
     left: 0;
-    right: 0;
-    bottom: 0;
-    background-color: rgba(0, 0, 0, 0.5); /* Slightly darker overlay for dark mode */
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+    color: white;
     display: flex;
     justify-content: center;
     align-items: center;
-    font-weight: bold;
-    z-index: 10;
-    cursor: wait;
-    color: var(--text-color);
-}
-
-[data-theme='light'] .connecting-overlay {
-     background-color: rgba(255, 255, 255, 0.7); /* Keep light overlay for light mode */
+    font-size: 1.5em;
+    z-index: 1000;
 }
 
 .locked {

@@ -8,68 +8,104 @@
 </head>
 <body>
     <button id="theme-toggle" title="Toggle light/dark mode"></button>
-    <div class="container" id="mcp-tester-container">
-        <h2>MCP Server Configuration</h2>
+    <div class="mcp-tester-wrapper">
+        <h1>MCP Tester</h1>
 
-        <div class="form-group">
-            <label for="transport">Client-Server Transport:</label>
-            <select id="transport" name="transport">
-                <option value="STDIO" selected>STDIO</option>
-                <option value="SSE">SSE</option>
-            </select>
-            <small style="margin-left: 10px;">(How the spawned client connects to the target server)</small>
-        </div>
+        <div class="column-layout">
 
-        <div class="form-group">
-            <label for="command">Client Command:</label>
-            <input type="text" id="command" name="command" placeholder="e.g., npx my-mcp-client">
-            <small style="margin-left: 10px;">(Command to spawn the MCP client process)</small>
-        </div>
-
-        <div class="form-group">
-            <label for="arg-input">Client Arguments:</label>
-            <button id="add-arg-btn" title="Add Argument">+</button>
-            <ul id="args-list">
-                <!-- Dynamically added arguments will appear here -->
-            </ul>
-        </div>
-
-        <div class="form-group">
-            <button id="test-connection-btn">Test Connection</button>
-            <span id="status-indicator" class="status-indicator"></span>
-            <button id="list-tools-btn" style="display: none; margin-left: 10px;">List Tools</button>
-        </div>
-
-        <div id="error-message" class="error-message">
-            <!-- Error messages will appear here -->
-        </div>
-
-        <div id="tools-list-area" style="margin-top: 15px; display: none;">
-            <h4>Available Tools:</h4>
-            <ul id="tools-list"></ul>
-            <div id="tools-loading-message" style="font-style: italic; color: #555;"></div>
-            <div id="tools-error-message" class="error-message"></div>
-        </div>
-
-        <!-- Add the missing Tool Execution Area -->
-        <div id="tool-execution-area" style="margin-top: 20px; display: none; border-top: 1px solid var(--border-color); padding-top: 15px;">
-            <h4>Execute Tool: <span id="selected-tool-name"></span></h4>
-            <form id="tool-params-form">
-                <!-- Dynamically added parameter inputs will appear here -->
-            </form>
-            <button id="execute-tool-btn" style="margin-top: 10px;">Execute</button>
-            <div id="tool-result-area" style="margin-top: 15px; display: none;">
-                <h5>Result:</h5>
-                <pre id="tool-result-output"></pre>
-                <div id="tool-result-error" class="error-message"></div>
+            <div class="column column-servers">
+                <div class="column-header">
+                    <h2>MCP Servers</h2>
+                    <button id="add-server-btn" title="Add New MCP Server">+</button>
+                </div>
+                <ul id="server-list" class="server-list">
+                    <!-- Server list items will be dynamically added here -->
+                    <!-- Example list item structure:
+                    <li class="server-item" data-server-id="unique_id">
+                        <span>Server Name (e.g., localhost)</span>
+                        <div class="server-actions">
+                            <button class="connect-btn">Connect</button>
+                            <button class="edit-btn">Edit</button>
+                            <button class="delete-btn">Delete</button>
+                        </div>
+                    </li>
+                     -->
+                </ul>
+                 <div id="connection-details" style="margin-top: 15px; border-top: 1px solid var(--border-color); padding-top: 10px;">
+                    <h4>Connection Details (Selected/New)</h4>
+                     <div class="form-group">
+                        <label for="server-name">Name:</label>
+                        <input type="text" id="server-name" name="server-name" placeholder="e.g., Local Dev Server" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="transport">Client-Server Transport:</label>
+                        <select id="transport" name="transport">
+                            <option value="STDIO" selected>STDIO</option>
+                            <option value="SSE">SSE</option>
+                        </select>
+                        <small style="margin-left: 10px;">(How the spawned client connects to the target server)</small>
+                    </div>
+                    <div class="form-group">
+                        <label for="command">Client Command:</label>
+                        <input type="text" id="command" name="command" placeholder="e.g., npx my-mcp-client">
+                        <small style="margin-left: 10px;">(Command to spawn the MCP client process)</small>
+                    </div>
+                    <div class="form-group">
+                        <label for="arg-input">Client Arguments:</label>
+                        <button id="add-arg-btn" title="Add Argument">+</button>
+                        <ul id="args-list">
+                            <!-- Dynamically added arguments will appear here -->
+                        </ul>
+                    </div>
+                    <div class="form-group">
+                        <button id="save-server-btn">Save Server</button>
+                         <button id="test-connection-btn">Test Connection</button>
+                         <span id="status-indicator" class="status-indicator"></span>
+                    </div>
+                    <div id="error-message" class="error-message">
+                         <!-- Error messages will appear here -->
+                    </div>
+                     <div id="connecting-overlay" class="connecting-overlay" style="display: none;">Connecting...</div>
+                 </div>
             </div>
-             <div id="tool-executing-message" style="font-style: italic; color: #555; display: none; margin-top: 10px;">Executing...</div>
-        </div>
-        <!-- End Tool Execution Area -->
 
-        <div id="connecting-overlay" class="connecting-overlay" style="display: none;">Connecting...</div>
+            <div class="column column-tools">
+                 <div class="column-header">
+                    <h2>Tools</h2>
+                 </div>
+                 <button id="list-tools-btn" disabled>List/Update Tools</button>
+                 <div id="tools-list-area" style="margin-top: 15px; display: none;">
+                    <ul id="tools-list"></ul>
+                    <div id="tools-loading-message" style="font-style: italic; color: #555;"></div>
+                    <div id="tools-error-message" class="error-message"></div>
+                </div>
+            </div>
+
+            <div class="column column-execution">
+                 <div class="column-header">
+                    <h2>Execute Tool</h2>
+                 </div>
+                 <div id="tool-execution-area" style="display: none;">
+                    <h4><span id="selected-tool-name"></span></h4>
+                    <form id="tool-params-form">
+                        <!-- Dynamically added parameter inputs will appear here -->
+                    </form>
+                    <button id="execute-tool-btn" style="margin-top: 10px;">Execute</button>
+                     <div id="tool-executing-message" style="font-style: italic; color: #555; display: none; margin-top: 10px;">Executing...</div>
+                    <div id="tool-result-area" style="margin-top: 15px; display: none;">
+                        <h5>Result:</h5>
+                        <pre id="tool-result-output"></pre>
+                        <div id="tool-result-error" class="error-message"></div>
+                    </div>
+                </div>
+                 <div id="tool-select-prompt" style="margin-top: 15px; font-style: italic; color: #555;">
+                    Select a tool from the list to execute.
+                 </div>
+            </div>
+
+        </div>
 
     </div>
-
+    <script type="module" src="../dist/mcp_tester.js"></script>
 </body>
 </html> 

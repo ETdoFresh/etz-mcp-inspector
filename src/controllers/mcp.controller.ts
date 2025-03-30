@@ -1,19 +1,26 @@
 // src/controllers/mcp.controller.ts
-import { McpUIView } from '../views/mcp-ui';
+import { McpUIView, McpServerConfig } from '../views/mcp-ui';
 import { McpCommunicationService, McpCommunicationCallbacks, McpConnectionConfig } from '../services/mcp-communication';
 import { McpMessagePayload } from '../models/mcp-message-payload.model'; // Needed for onMcpMessage
 import { UIToolDefinition } from '../models/tool-definition.model'; // Needed for renderToolList
 import { ApplicationServiceProvider } from '../services/application-service-provider'; // Added
 import { Logger } from '../services/logger-service'; // Added
 
-// Define the structure for callbacks the UI needs to trigger actions
+// Updated UIActions interface to include server management
 export interface McpUIActions {
-    onAddArgument: () => void;
-    onTestConnection: (args: string[]) => void; // Passes current args
+    onAddArgument: () => void; // View adds input locally, controller may save state
+    onTestConnection: (args: string[]) => void; // Still useful to pass current args from form for test/save
     onListTools: () => void;
     onExecuteTool: (params: { [key: string]: any }) => void;
-    onToolSelected: (toolIndex: number) => void; // To notify the orchestrator
-    onArgumentInputChange: () => string[]; // Callback to get current args for saving
+    onToolSelected: (toolIndex: number) => void;
+    onArgumentInputChange: () => void; // Notify controller of arg changes
+
+    // New Server Actions
+    onAddServer: () => void; // User clicked '+'
+    onSaveServer: (config: McpServerConfig) => void; // User clicked 'Save Server'
+    onSelectServer: (serverId: string) => void; // User clicked a server item
+    onDeleteServer: (serverId: string) => void; // User clicked delete on a server item
+    onConfigInputChange: () => void; // User changed name, transport, command, or args
 }
 
 export class McpController implements McpUIActions, McpCommunicationCallbacks {
@@ -23,8 +30,12 @@ export class McpController implements McpUIActions, McpCommunicationCallbacks {
     // State to track the type of request pending a response
     private pendingRequestType: 'listTools' | 'executeTool' | null = null;
     
-    // Add state to store selected tool if needed
-    // private selectedTool: UIToolDefinition | null = null;
+    // --- State Management ---
+    private servers: McpServerConfig[] = []; // List of saved servers
+    private currentSelectedServerId: string | null = null; // ID of the selected server
+    private isConnectedToServer: boolean = false; // Track connection status
+    private readonly localStorageKey = 'mcpServersConfig'; // Key for localStorage
+    private readonly lastSelectedServerKey = 'mcpLastSelectedServerId'; // Key for last selection
 
     constructor() {
         this.view = new McpUIView();
@@ -36,7 +47,7 @@ export class McpController implements McpUIActions, McpCommunicationCallbacks {
         // Initialize the view state
         this.view.setInitialState();
         // Potentially load saved config and render args here?
-        this.loadAndApplyConfig();
+        this.loadServers();
 
         this.logger?.LogInfo((a, b) => a(b), "McpController initialized.", "Controller", "Initialization"); // Replaced console.log
     }
@@ -44,54 +55,175 @@ export class McpController implements McpUIActions, McpCommunicationCallbacks {
     // --- Implementation of McpUIActions ---
 
     onAddArgument(): void {
-        this.logger?.LogDebug((a, b) => a(b), "onAddArgument triggered", "Controller", "Action", "UIEvent"); // Replaced console.log
-        // This might trigger saving config if needed
-        this.saveConfig(); 
+        // View handles adding the input visually.
+        // We might want to trigger a save if a server is selected and being edited.
+        this.logger?.LogDebug((a, b) => a(b), "onAddArgument triggered", "Controller", "Action", "UIEvent");
+        // Consider if this should mark the current form as "dirty"
     }
 
-    onTestConnection(args: string[]): void {
-        this.logger?.LogInfo((a, b) => a(b), `onTestConnection triggered with ${args.length} args`, "Controller", "Action", "UIEvent"); // Replaced console.log
-        this.view.showConnecting();
-        
-        // Get current config from view
-        const config: McpConnectionConfig = {
-            transport: this.view.getTransport(),
-            command: this.view.getCommand(),
-            args: args // Use args passed from view event
-        };
+    onConfigInputChange(): void {
+        // Called when server name, transport, command, or args change in the form
+        this.logger?.LogDebug((a, b) => a(b), "onConfigInputChange triggered", "Controller", "Action", "UIEvent");
+        // If a server is selected, maybe indicate unsaved changes?
+        // We don't save automatically here, user must click Save/Update.
+        // Might need to disable Test Connection if changes are unsaved?
+    }
 
-        // Save config before attempting connection
-        this.saveConfig(config);
+    // Called when user clicks [+] Add Server button
+    onAddServer(): void {
+        this.logger?.LogInfo((a, b) => a(b), "onAddServer triggered", "Controller", "Action", "UIEvent");
+        this.disconnectCurrent(); // Disconnect if connected to another server
+        this.currentSelectedServerId = null; // Deselect any current server
+        this.view.setSelectedServer(null); // Update visual selection
+        this.view.clearServerForm(); // Clear form for new entry
+        this.view.clearToolListAndExecution(); // Clear columns 2 & 3
+    }
+
+    // Called when user clicks Save/Update button
+    onSaveServer(formData: McpServerConfig): void {
+        this.logger?.LogInfo((a, b) => a(b), `onSaveServer triggered for ID: ${formData.id}`, "Controller", "Action", "UIEvent");
+
+        let serverToSave: McpServerConfig;
+        const existingIndex = this.servers.findIndex(s => s.id === formData.id);
+
+        if (existingIndex > -1) {
+            // Update existing server
+            serverToSave = { ...this.servers[existingIndex], ...formData };
+            this.servers[existingIndex] = serverToSave;
+            this.logger?.LogDebug((a, b) => a(b), `Updating server: ${serverToSave.name} (${serverToSave.id})`, "Controller", "ServerManagement");
+            this.view.hideServerForm(); // <<< ADDED: Hide form after successful update
+        } else {
+            // Add new server - generate a unique ID
+            serverToSave = { ...formData, id: this.generateUniqueId() };
+            this.servers.push(serverToSave);
+            this.logger?.LogDebug((a, b) => a(b), `Adding new server: ${serverToSave.name} (${serverToSave.id})`, "Controller", "ServerManagement");
+            // Keep form visible after adding a new server
+        }
+
+        this.currentSelectedServerId = serverToSave.id; // Select the newly saved/updated server
+        this.saveServersToStorage(); // Persist changes
+        this.view.renderServerList(this.servers, this.currentSelectedServerId); // Re-render list
+        // Don't re-populate form if we just hid it for an update
+        if (existingIndex === -1) { // Only populate form if adding new
+             this.view.populateServerForm(serverToSave);
+        }
+        this.view.setSelectedServer(this.currentSelectedServerId); // Ensure visual selection in the list
+    }
+
+    // Called when user clicks on a server item in the list (or the Edit button)
+    onSelectServer(serverId: string): void {
+        this.logger?.LogDebug((a, b) => a(b), `onSelectServer triggered for ID: ${serverId}`, "Controller", "Action", "UIEvent");
+        const server = this.servers.find(s => s.id === serverId);
+        if (!server) {
+            this.logger?.LogError((a, b) => a(b), `Selected server ID ${serverId} not found in list!`, "Controller", "ServerManagement", "Error");
+            return;
+        }
+
+        if (this.currentSelectedServerId !== serverId) {
+             this.disconnectCurrent(); // Disconnect if switching servers
+             this.currentSelectedServerId = serverId;
+             this.view.setSelectedServer(serverId); // Update view selection
+             this.view.populateServerForm(server); // Load selected server data into form
+             this.view.clearToolListAndExecution(); // Clear columns 2 & 3
+             this.saveLastSelectedServerId(serverId);
+        } else {
+            // Clicking the already selected server - ensure form is populated
+            this.view.populateServerForm(server);
+        }
+    }
+
+    // Called when user clicks the Delete button on a server item
+    onDeleteServer(serverId: string): void {
+        this.logger?.LogInfo((a, b) => a(b), `onDeleteServer triggered for ID: ${serverId}`, "Controller", "Action", "UIEvent");
+        const serverIndex = this.servers.findIndex(s => s.id === serverId);
+        if (serverIndex === -1) return; // Not found
+
+        const serverName = this.servers[serverIndex].name;
+        this.servers.splice(serverIndex, 1); // Remove from array
+
+        // If the deleted server was selected, deselect and clear form
+        if (this.currentSelectedServerId === serverId) {
+            this.disconnectCurrent(); // Disconnect first
+            this.currentSelectedServerId = null;
+            this.view.clearServerForm();
+            this.view.setSelectedServer(null);
+            this.saveLastSelectedServerId(null); // Clear last selected
+        }
+
+        this.saveServersToStorage(); // Persist deletion
+        this.view.renderServerList(this.servers, this.currentSelectedServerId); // Re-render list
+        this.logger?.LogDebug((a, b) => a(b), `Deleted server: ${serverName} (${serverId})`, "Controller", "ServerManagement");
+
+        // If no servers left, ensure form is hidden/cleared appropriately
+        if (this.servers.length === 0) {
+            this.view.setSelectedServer(null);
+            // clearServerForm might already hide it, or do it explicitly
+            // this.view.connectionDetailsDiv.style.display = 'none';
+        }
+    }
+
+    // Called when Test Connection button is clicked (uses selected server)
+    onTestConnection(argsFromForm: string[]): void {
+        this.logger?.LogInfo((a, b) => a(b), `onTestConnection triggered for selected server: ${this.currentSelectedServerId}`, "Controller", "Action", "UIEvent");
+
+        if (!this.currentSelectedServerId) {
+            this.view.showError("No server selected to test.", true);
+            return;
+        }
+
+        const server = this.servers.find(s => s.id === this.currentSelectedServerId);
+        if (!server) {
+            this.view.showError(`Selected server (${this.currentSelectedServerId}) not found.`, true);
+            return;
+        }
+
+        // Decide whether to use SAVED config or CURRENT FORM data for the test
+        // Option 1: Use saved config (safer if form has unsaved changes)
+        const configToUse: McpConnectionConfig = {
+             transport: server.transport,
+             command: server.command,
+             args: server.args
+         };
+        // Option 2: Use current form data (allows testing changes before saving)
+        // const formData = this.view.getServerFormData();
+        // const configToUse: McpConnectionConfig = {
+        //     transport: formData.transport,
+        //     command: formData.command,
+        //     args: formData.args // or use argsFromForm passed in?
+        // };
+
+        this.logger?.LogDebug((a,b)=>a(b), `Attempting connection with config: ${JSON.stringify(configToUse)}`, "Controller", "Connection")
+
+        this.view.showConnecting();
+        this.disconnectCurrent(); // Ensure any previous connection is closed
 
         // Reset pending request state before connecting
         this.pendingRequestType = null;
+        this.isConnectedToServer = false; // Assume disconnected until successful
+
         // Connect using the service, passing this controller as the callback handler
-        this.communicationService.connect(config, this);
+        this.communicationService.connect(configToUse, this);
     }
 
     onListTools(): void {
-        this.logger?.LogInfo((a, b) => a(b), "onListTools triggered", "Controller", "Action", "UIEvent"); // Replaced console.log
-        if (!this.communicationService.isConnected) {
+        this.logger?.LogInfo((a, b) => a(b), "onListTools triggered", "Controller", "Action", "UIEvent");
+        if (!this.isConnectedToServer) { // Check internal connection state
             this.view.showToolListError("Cannot list tools: Not connected.");
             return;
         }
         this.view.showFetchingTools();
-        // Set pending request type
         this.pendingRequestType = 'listTools';
-        // Send request via service - Use correct method name 'tools/list'
-        // The proxy will add an ID
         this.communicationService.sendRequestToBackend('tools/list', {});
-        this.logger?.LogDebug((a, b) => a(b), `Sent tools/list request`, "Controller", "Action", "MCPRequest"); // Replaced console.log
-        // Result will be handled by onMcpMessage callback
+        this.logger?.LogDebug((a, b) => a(b), `Sent tools/list request`, "Controller", "Action", "MCPRequest");
     }
 
     onExecuteTool(params: { [key: string]: any }): void {
-        this.logger?.LogInfo((a, b) => a(b), `onExecuteTool triggered`, "Controller", "Action", "UIEvent", "ToolExecution"); // Replaced console.log
-        if (!this.communicationService.isConnected) {
+        this.logger?.LogInfo((a, b) => a(b), `onExecuteTool triggered`, "Controller", "Action", "UIEvent", "ToolExecution");
+        if (!this.isConnectedToServer) { // Check internal connection state
             this.view.displayToolResult({ status: 'error', message: "Cannot execute tool: Not connected." });
             return;
         }
-        
+
         const selectedToolName = this.view.getSelectedToolName();
         if (!selectedToolName) {
             this.view.displayToolResult({ status: 'error', message: "Cannot execute: No tool selected or name unavailable." });
@@ -99,156 +231,216 @@ export class McpController implements McpUIActions, McpCommunicationCallbacks {
         }
 
         this.view.showExecutingTool();
-        // Set pending request type
         this.pendingRequestType = 'executeTool';
-        // Send request via service - Use correct method name 'tools/call'
-        // The proxy will add an ID
-        this.communicationService.sendRequestToBackend('tools/call', { 
-            name: selectedToolName, // Older code used 'name' and 'arguments'
-            arguments: params 
+        this.communicationService.sendRequestToBackend('tools/call', {
+            name: selectedToolName,
+            arguments: params
         });
-        this.logger?.LogDebug((a, b) => a(b), `Sent tools/call request for ${selectedToolName}`, "Controller", "Action", "MCPRequest", "ToolExecution"); // Replaced console.log
-        // Result will be handled by onMcpMessage callback
+        this.logger?.LogDebug((a, b) => a(b), `Sent tools/call request for ${selectedToolName}`, "Controller", "Action", "MCPRequest", "ToolExecution");
     }
 
     onToolSelected(toolIndex: number): void {
-        this.logger?.LogDebug((a, b) => a(b), `onToolSelected triggered with index: ${toolIndex}`, "Controller", "Action", "UIEvent", "ToolSelection"); // Replaced console.log
-        // Logic is currently handled by the View to display the form.
-        // Controller could store the selected tool definition if needed for execution.
-        // this.selectedTool = this.view.getToolDefinitionByIndex(toolIndex); // Example if needed
+        this.logger?.LogDebug((a, b) => a(b), `onToolSelected triggered with index: ${toolIndex}`, "Controller", "Action", "UIEvent", "ToolSelection");
+        // View handles displaying the form. Controller state for selected tool isn't strictly needed yet.
     }
 
-    onArgumentInputChange(): string[] {
-        this.logger?.LogDebug((a, b) => a(b), "onArgumentInputChange triggered", "Controller", "Action", "UIEvent"); // Replaced console.log
-        const currentArgs = this.view.getAllArguments();
-        // Trigger saving config whenever args change
-        this.saveConfig(); 
-        this.logger?.LogDebug((a, b) => a(b), `Current args from view: ${JSON.stringify(currentArgs)}`, "Controller", "State", "UIEvent"); // Replaced console.log
-        return currentArgs;
+    onArgumentInputChange(): void {
+        // Called when individual args change in the form
+        this.logger?.LogDebug((a, b) => a(b), "onArgumentInputChange triggered", "Controller", "Action", "UIEvent");
+        // Trigger general config change handler
+        this.onConfigInputChange();
     }
 
     // --- Implementation of McpCommunicationCallbacks ---
 
     onConnecting(): void {
-        this.logger?.LogInfo((a, b) => a(b), "Service is connecting...", "Controller", "Callback", "CommunicationState"); // Replaced console.log
-        this.view.showConnecting();
+        this.logger?.LogInfo((a, b) => a(b), "Service is connecting...", "Controller", "Callback", "CommunicationState");
+        // View already handles showing overlay via showConnecting
+        // this.view.showConnecting();
     }
 
     onConnected(): void {
-        this.logger?.LogInfo((a, b) => a(b), "Service connected.", "Controller", "Callback", "CommunicationState"); // Replaced console.log
+        this.logger?.LogInfo((a, b) => a(b), "Service connected.", "Controller", "Callback", "CommunicationState");
+        this.isConnectedToServer = true;
         this.view.showConnected(true);
     }
 
     onDisconnected(code?: number | string): void {
-        this.logger?.LogInfo((a, b) => a(b), `Service disconnected. Code: ${code ?? 'N/A'}`, "Controller", "Callback", "CommunicationState"); // Replaced console.log
+        this.logger?.LogInfo((a, b) => a(b), `Service disconnected. Code: ${code ?? 'N/A'}`, "Controller", "Callback", "CommunicationState");
+        this.isConnectedToServer = false;
         this.pendingRequestType = null; // Reset pending request on disconnect
-        this.view.showConnected(false); // Update status indicator
-        this.view.showError(`Disconnected (Code: ${code})`, false); // Show message, not necessarily a connection error
+        this.view.showConnected(false); // Update status indicator and disable tool button
+        // View handles clearing tool areas
+        // this.view.showError(`Disconnected (Code: ${code})`, false); // Let view handle this message
     }
 
     onError(error: string, isConnectionError: boolean): void {
-        this.logger?.LogError((a, b) => a(b), `Service Error: ${error}. Is connection error: ${isConnectionError}`, "Controller", "Callback", "CommunicationError"); // Replaced console.error
+        this.logger?.LogError((a, b) => a(b), `Service Error: ${error}. Is connection error: ${isConnectionError}`, "Controller", "Callback", "CommunicationError");
+        this.isConnectedToServer = false;
         this.pendingRequestType = null; // Reset pending request on error
         this.view.showError(error, isConnectionError);
+         // If it was a connection error, showConnected(false) should be called by view
+         if (isConnectionError) {
+             this.view.showConnected(false);
+         }
     }
 
     onMcpMessage(payload: McpMessagePayload): void {
-        this.logger?.LogDebug((a, b) => a(b), `Received MCP message`, "Controller", "Callback", "MCPMessage"); // Replaced console.log
+        this.logger?.LogDebug((a, b) => a(b), `Received MCP message: ${JSON.stringify(payload)}`, "Controller", "Callback", "MCPMessage");
 
         // Check if it's a response (has an ID)
         if (payload.id) {
-            // Check the pending request type to determine how to handle the response
             switch (this.pendingRequestType) {
                 case 'listTools':
-                    this.logger?.LogDebug((a, b) => a(b), `Handling response for pending request: ${this.pendingRequestType} (ID: ${payload.id})`, "Controller", "Callback", "MCPMessage", "ResponseHandling"); // Replaced console.log
-                    if (payload.result && payload.result.tools && Array.isArray(payload.result.tools)) {
-                        this.view.renderToolList(payload.result.tools as UIToolDefinition[]); 
+                    this.logger?.LogDebug((a, b) => a(b), `Handling response for pending request: ${this.pendingRequestType} (ID: ${payload.id})`, "Controller", "Callback", "MCPMessage", "ResponseHandling");
+                    if (payload.result?.tools && Array.isArray(payload.result.tools)) {
+                        this.view.renderToolList(payload.result.tools as UIToolDefinition[]);
                     } else if (payload.error) {
                         this.view.showToolListError(`Error listing tools: ${payload.error.message} (Code: ${payload.error.code})`);
                     } else {
                         this.view.showToolListError('Received invalid response format for listTools.');
                     }
-                    this.pendingRequestType = null; // Reset pending type
+                    this.pendingRequestType = null;
                     break;
 
                 case 'executeTool':
-                    this.logger?.LogDebug((a, b) => a(b), `Handling response for pending request: ${this.pendingRequestType} (ID: ${payload.id})`, "Controller", "Callback", "MCPMessage", "ResponseHandling"); // Replaced console.log
-                     if (payload.result !== undefined) { 
+                    this.logger?.LogDebug((a, b) => a(b), `Handling response for pending request: ${this.pendingRequestType} (ID: ${payload.id})`, "Controller", "Callback", "MCPMessage", "ResponseHandling");
+                     if (payload.result !== undefined) {
                          this.view.displayToolResult({ status: 'success', data: payload.result });
                      } else if (payload.error) {
                          this.view.displayToolResult({ status: 'error', message: payload.error.message, details: payload.error.data });
                      } else {
                          this.view.displayToolResult({ status: 'error', message: 'Received invalid response format for executeTool.' });
                      }
-                    this.pendingRequestType = null; // Reset pending type
+                    this.pendingRequestType = null;
                     break;
 
                 default:
-                    this.logger?.LogWarning((a, b) => a(b), `Received response with ID ${payload.id} but no matching pending request type (${this.pendingRequestType})`, "Controller", "Callback", "MCPMessage", "ResponseHandling", "Unexpected"); // Replaced console.warn
-                    // Handle unexpected response? Maybe show a generic error?
+                    this.logger?.LogWarning((a, b) => a(b), `Received response with ID ${payload.id} but no matching pending request type (${this.pendingRequestType})`, "Controller", "Callback", "MCPMessage", "ResponseHandling", "Unexpected");
                     break;
             }
-        } 
-        // --- Handle Notifications (No ID) ---
-        else if (payload.method) { 
-             if (payload.method === 'logMessage') { 
-                 if (payload.params && typeof payload.params.message === 'string') {
-                     const level = payload.params.level || 'info';
-                     this.logger?.LogInfo((a, b) => a(b), `[MCP Log/${level.toUpperCase()}]: ${payload.params.message}`, "Controller", "Callback", "MCPMessage", "Notification", "MCPLog"); // Replaced console.log
-                     // this.view.addLogMessage(...) // Example
-                 }
-            } else {
-                this.logger?.LogWarning((a, b) => a(b), `Unhandled MCP notification method: ${payload.method}`, "Controller", "Callback", "MCPMessage", "Notification", "Unhandled"); // Replaced console.warn
-            }
-        } 
-        // --- Handle Unexpected Data --- 
-        else {
-            this.logger?.LogWarning((a, b) => a(b), `Received unexpected data structure from MCP`, "Controller", "Callback", "MCPMessage", "Unexpected"); // Replaced console.warn
+        } else if (payload.method) { // Handle Notifications
+             if (payload.method === 'logMessage' && payload.params?.message) {
+                 const level = payload.params.level || 'info';
+                 this.logger?.LogInfo((a, b) => a(b), `[MCP Log/${level.toUpperCase()}]: ${payload.params.message}`, "Controller", "Callback", "MCPMessage", "Notification", "MCPLog");
+             } else {
+                  this.logger?.LogWarning((a, b) => a(b), `Received unhandled MCP notification: ${payload.method}`, "Controller", "Callback", "MCPMessage", "Notification", "Unexpected");
+             }
         }
     }
 
+    // Log messages from the communication service itself (e.g., transport specific logs)
     onLogMessage(source: string, content: string): void {
-        this.logger?.LogInfo((a, b) => a(b), `Log from service [${source}]: ${content}`, "Controller", "Callback", "ServiceLog"); // Replaced console.log
-        // TODO: Decide how/if to display proxy/service logs in the UI
-        // this.view.addLogMessage(`${source}: ${content}`); // Example
+        this.logger?.LogDebug((a, b) => a(b), `[${source}] ${content}`, "Controller", "Callback", "ServiceLog");
+        // Optionally pass to view if a log panel exists: this.view.showLogMessage(source, content);
     }
 
     // --- Helper Methods ---
-    private saveConfig(config?: McpConnectionConfig): void {
-        this.logger?.LogDebug((a, b) => a(b), "Attempting to save config...", "Controller", "Helper", "Config"); // Already updated
-        try {
-            const transport = config?.transport ?? this.view.getTransport();
-            const command = config?.command ?? this.view.getCommand();
-            const args = config?.args ?? this.view.getAllArguments();
 
-            localStorage.setItem('mcpConfig', JSON.stringify({ transport, command, args }));
-            this.logger?.LogInfo((a, b) => a(b), "Config saved.", "Controller", "Helper", "Config"); // Replaced console.log
-        } catch (e: unknown) {
-            const errorMsg = e instanceof Error ? e.message : String(e);
-            this.logger?.LogError((a, b) => a(b), `Failed to save config to localStorage: ${errorMsg}`, "Controller", "Helper", "Config", "Error"); // Replaced console.error
+    private generateUniqueId(): string {
+        // Simple unique ID generation (consider a more robust library if needed)
+        return Date.now().toString(36) + Math.random().toString(36).substring(2);
+    }
+
+    private saveServersToStorage(): void {
+        try {
+            localStorage.setItem(this.localStorageKey, JSON.stringify(this.servers));
+            this.logger?.LogDebug((a, b) => a(b), "Server configurations saved to localStorage.", "Controller", "Persistence");
+        } catch (error: any) {
+            this.logger?.LogError((a, b) => a(b), `Failed to save servers to localStorage: ${error.message}`, "Controller", "Persistence", "Error");
+            // Optionally inform the user via the view
+            // this.view.showError("Could not save server configurations.", false);
+        }
+    }
+
+    private loadServers(): void {
+        try {
+            const savedServers = localStorage.getItem(this.localStorageKey);
+            if (savedServers) {
+                this.servers = JSON.parse(savedServers);
+                this.logger?.LogInfo((a, b) => a(b), `Loaded ${this.servers.length} server(s) from localStorage.`, "Controller", "Persistence");
+            } else {
+                this.servers = []; // Initialize as empty array if nothing saved
+            }
+        } catch (error: any) {
+            this.logger?.LogError((a, b) => a(b), `Failed to load servers from localStorage: ${error.message}`, "Controller", "Persistence", "Error");
+            this.servers = []; // Start with empty list on error
+            // Optionally inform the user
+            // this.view.showError("Could not load saved server configurations.", false);
+        }
+
+        // Load last selected server ID
+        const lastSelectedId = localStorage.getItem(this.lastSelectedServerKey);
+        let serverToSelect: McpServerConfig | undefined = undefined;
+
+        if (lastSelectedId) {
+             serverToSelect = this.servers.find(s => s.id === lastSelectedId);
+        }
+
+        // If no last selection or last selected not found, select first server if available
+        if (!serverToSelect && this.servers.length > 0) {
+             serverToSelect = this.servers[0];
+        }
+
+        // Render the list and select the appropriate server
+        this.currentSelectedServerId = serverToSelect ? serverToSelect.id : null;
+        this.view.renderServerList(this.servers, this.currentSelectedServerId);
+        this.view.setSelectedServer(this.currentSelectedServerId); // Highlight selection in list
+        // Ensure form is hidden initially
+        this.view.hideServerForm();
+    }
+
+    private saveLastSelectedServerId(serverId: string | null): void {
+        try {
+            if (serverId) {
+                localStorage.setItem(this.lastSelectedServerKey, serverId);
+            } else {
+                localStorage.removeItem(this.lastSelectedServerKey);
+            }
+        } catch (error: any) {
+            this.logger?.LogError((a, b) => a(b), `Failed to save last selected server ID: ${error.message}`, "Controller", "Persistence", "Error");
+        }
+    }
+
+    private disconnectCurrent(): void {
+        if (this.communicationService.isConnected) {
+            this.logger?.LogInfo((a, b) => a(b), "Disconnecting from current server...", "Controller", "Connection");
+            this.communicationService.disconnect();
+            this.isConnectedToServer = false;
+            // View updates are handled in onDisconnected callback
+        }
+    }
+
+    /* // Old save/load - replaced by server list management
+    private saveConfig(config?: McpConnectionConfig): void {
+        try {
+            const configToSave = config || {
+                transport: this.view.getTransport(),
+                command: this.view.getCommand(),
+                args: this.view.getAllArguments()
+            };
+            localStorage.setItem(this.localStorageKey, JSON.stringify(configToSave));
+             this.logger?.LogDebug((a, b) => a(b), "Configuration saved.", "Controller", "Persistence");
+        } catch (error: any) {
+             this.logger?.LogError((a, b) => a(b), `Failed to save config: ${error.message}`, "Controller", "Persistence", "Error");
         }
     }
 
     private loadAndApplyConfig(): void {
-        this.logger?.LogDebug((a, b) => a(b), "Attempting to load config...", "Controller", "Helper", "Config"); // Replaced console.log
         try {
-            const savedConfig = localStorage.getItem('mcpConfig');
+            const savedConfig = localStorage.getItem(this.localStorageKey);
             if (savedConfig) {
                 const config = JSON.parse(savedConfig);
-                if (config && typeof config === 'object') {
-                    this.view.setTransport(config.transport || 'tcp'); // Provide default
-                    this.view.setCommand(config.command || '');
-                    this.view.renderArgumentInputs(config.args || []);
-                    this.logger?.LogInfo((a, b) => a(b), "Config loaded and applied.", "Controller", "Helper", "Config"); // Replaced console.log
-                } else {
-                    this.logger?.LogInfo((a, b) => a(b), "No valid saved config found.", "Controller", "Helper", "Config"); // Replaced console.log
-                }
+                this.view.setTransport(config.transport || 'STDIO');
+                this.view.setCommand(config.command || '');
+                this.view.renderArgumentInputs(config.args || []);
+                 this.logger?.LogInfo((a, b) => a(b), "Configuration loaded.", "Controller", "Persistence");
             } else {
-                 this.logger?.LogInfo((a, b) => a(b), "No saved config found in localStorage.", "Controller", "Helper", "Config"); // Added log for clarity
+                 this.logger?.LogInfo((a, b) => a(b), "No saved configuration found.", "Controller", "Persistence");
             }
-        } catch (e: unknown) {
-             const errorMsg = e instanceof Error ? e.message : String(e);
-            this.logger?.LogError((a, b) => a(b), `Failed to load or apply config from localStorage: ${errorMsg}`, "Controller", "Helper", "Config", "Error"); // Replaced console.error
+        } catch (error: any) {
+             this.logger?.LogError((a, b) => a(b), `Failed to load config: ${error.message}`, "Controller", "Persistence", "Error");
         }
     }
+    */
 } 

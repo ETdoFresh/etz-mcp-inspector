@@ -4,19 +4,32 @@ import { McpUIActions } from '../controllers/mcp.controller';
 import { ApplicationServiceProvider } from '../services/application-service-provider';
 import { Logger } from '../services/logger-service';
 
+// Define the server config structure locally (or import if moved to models)
+export interface McpServerConfig {
+    id: string; // Unique identifier
+    name: string; // User-friendly name
+    transport: string;
+    command: string;
+    args: string[];
+}
+
 export class McpUIView {
     private logger: Logger | undefined = ApplicationServiceProvider.getService(Logger);
 
     // --- UI Elements --- Declare properties
+    private serverListUl: HTMLUListElement;
+    private addServerBtn: HTMLButtonElement;
+    private connectionDetailsDiv: HTMLDivElement;
+    private serverNameInput: HTMLInputElement;
     private transportSelect: HTMLSelectElement;
     private commandInput: HTMLInputElement;
     private addArgBtn: HTMLButtonElement;
     private argsList: HTMLUListElement;
+    private saveServerBtn: HTMLButtonElement;
     private testConnectionBtn: HTMLButtonElement;
     private statusIndicator: HTMLSpanElement;
     private errorMessageDiv: HTMLDivElement;
     private connectingOverlay: HTMLDivElement;
-    private container: HTMLDivElement;
     private listToolsBtn: HTMLButtonElement;
     private toolsListArea: HTMLDivElement;
     private toolsListUl: HTMLUListElement;
@@ -30,15 +43,22 @@ export class McpUIView {
     private toolResultOutput: HTMLPreElement;
     private toolResultError: HTMLDivElement;
     private toolExecutingMsg: HTMLDivElement;
+    private toolSelectPrompt: HTMLDivElement;
 
     private actions: McpUIActions | null = null;
     private currentTools: UIToolDefinition[] = []; // Store tools locally for rendering
     private selectedTool: UIToolDefinition | null = null; // Store selected tool locally
     private isListingToolsState: boolean = false; // Track if listTools is in progress
+    private currentSelectedServerId: string | null = null; // Track selected server ID
 
     constructor() {
         // --- Get all elements --- Assign properties in constructor
         // Throws error if any element is missing
+        this.serverListUl = this.getElement('server-list', HTMLUListElement);
+        this.addServerBtn = this.getElement('add-server-btn', HTMLButtonElement);
+        this.connectionDetailsDiv = this.getElement('connection-details', HTMLDivElement);
+        this.serverNameInput = this.getElement('server-name', HTMLInputElement);
+        this.saveServerBtn = this.getElement('save-server-btn', HTMLButtonElement);
         this.transportSelect = this.getElement('transport', HTMLSelectElement);
         this.commandInput = this.getElement('command', HTMLInputElement);
         this.addArgBtn = this.getElement('add-arg-btn', HTMLButtonElement);
@@ -47,7 +67,6 @@ export class McpUIView {
         this.statusIndicator = this.getElement('status-indicator', HTMLSpanElement);
         this.errorMessageDiv = this.getElement('error-message', HTMLDivElement);
         this.connectingOverlay = this.getElement('connecting-overlay', HTMLDivElement);
-        this.container = this.getElement('mcp-tester-container', HTMLDivElement);
         this.listToolsBtn = this.getElement('list-tools-btn', HTMLButtonElement);
         this.toolsListArea = this.getElement('tools-list-area', HTMLDivElement);
         this.toolsListUl = this.getElement('tools-list', HTMLUListElement);
@@ -61,9 +80,7 @@ export class McpUIView {
         this.toolResultOutput = this.getElement('tool-result-output', HTMLPreElement);
         this.toolResultError = this.getElement('tool-result-error', HTMLDivElement);
         this.toolExecutingMsg = this.getElement('tool-executing-message', HTMLDivElement);
-
-        // Do not bind listeners here; wait for actions to be registered.
-        // this.setInitialState(); // Call explicitly after construction if needed
+        this.toolSelectPrompt = this.getElement('tool-select-prompt', HTMLDivElement);
     }
 
     // Helper to get elements and throw if missing
@@ -91,43 +108,99 @@ export class McpUIView {
         // Ensure actions are registered before binding
         if (!this.actions) return;
 
-        // --- Configuration Listeners ---
-        this.addArgBtn.addEventListener('click', () => {
-            this.addArgumentInput(); // Add input field locally
-            // No need to call action here, onArgumentInputChange handles notifying orchestrator
+        // --- Column 1 Listeners ---
+        this.addServerBtn.addEventListener('click', () => this.actions!.onAddServer());
+
+        this.saveServerBtn.addEventListener('click', () => {
+            const formData = this.getServerFormData();
+            if (!formData.name) {
+                this.showError("Server name is required.", false, 'col1'); // Show error in Col 1
+                return;
+            }
+            this.actions!.onSaveServer(formData);
         });
 
         this.testConnectionBtn.addEventListener('click', () => {
-            const currentArgs = this.getAllArguments();
-            // Notify orchestrator to save args and attempt connection
+            const currentArgs = this.getAllArguments(); // Get args from form
             this.actions!.onTestConnection(currentArgs);
         });
 
-        // Listener for changes in argument inputs or removals
+        this.serverListUl.addEventListener('click', (event) => {
+            const target = event.target as HTMLElement;
+            const serverItem = target.closest('.server-item');
+            if (!serverItem) return;
+            const serverId = serverItem.getAttribute('data-server-id');
+            if (!serverId) return;
+
+            if (target.classList.contains('delete-btn')) {
+                event.stopPropagation();
+                if (confirm(`Are you sure you want to delete server "${serverItem.querySelector('span')?.textContent ?? serverId}"?`)) {
+                    this.actions!.onDeleteServer(serverId);
+                }
+            } else if (target.classList.contains('edit-btn')) {
+                 event.stopPropagation();
+                 this.actions!.onSelectServer(serverId);
+            } else {
+                this.actions!.onSelectServer(serverId);
+            }
+        });
+
+        this.serverNameInput.addEventListener('input', () => this.actions!.onConfigInputChange());
+        this.transportSelect.addEventListener('change', () => this.actions!.onConfigInputChange());
+        this.commandInput.addEventListener('input', () => this.actions!.onConfigInputChange());
+
+        this.addArgBtn.addEventListener('click', () => {
+            this.addArgumentInput();
+            this.actions!.onArgumentInputChange();
+        });
+
         this.argsList.addEventListener('input', (event) => {
             if ((event.target as HTMLElement).classList.contains('arg-input-dynamic')) {
-                this.actions?.onArgumentInputChange(); // Notify orchestrator that args changed
+                this.actions?.onArgumentInputChange();
             }
         });
         this.argsList.addEventListener('click', (event) => {
-             if ((event.target as HTMLElement).classList.contains('remove-arg-btn')) {
-                 // Removal is handled within addArgumentInput's listener
-                 // But we still notify that args changed overall
+             const target = event.target as HTMLElement;
+             if (target.classList.contains('remove-arg-btn')) {
+                 // Let addArgumentInput handle removal, but notify change
                  this.actions?.onArgumentInputChange();
              }
          });
 
-        // --- Tool Interaction Listeners ---
+        // --- Column 2 Listeners ---
         this.listToolsBtn.addEventListener('click', () => this.actions!.onListTools());
 
+        // Tool selection listener added dynamically in renderToolList
+        this.toolsListUl.addEventListener('click', (event) => {
+            const target = event.target as HTMLElement;
+            const toolItem = target.closest('li[data-tool-index]');
+            if (toolItem) {
+                const toolIndex = parseInt(toolItem.getAttribute('data-tool-index') || '-1', 10);
+                if (toolIndex >= 0) {
+                    this.handleToolSelect(toolIndex);
+                }
+            }
+        });
+        this.toolsListUl.addEventListener('keydown', (event) => {
+             const target = event.target as HTMLElement;
+             if (event.key === 'Enter' || event.key === ' ') {
+                 const toolItem = target.closest('li[data-tool-index]');
+                 if (toolItem) {
+                     const toolIndex = parseInt(toolItem.getAttribute('data-tool-index') || '-1', 10);
+                     if (toolIndex >= 0) {
+                         this.handleToolSelect(toolIndex);
+                     }
+                 }
+             }
+         });
+
+        // --- Column 3 Listeners ---
         this.executeToolBtn.addEventListener('click', () => this.handleExecuteTool());
 
         this.toolParamsForm.addEventListener('submit', (e) => {
-            e.preventDefault(); // Prevent default form submission
-            this.handleExecuteTool(); // Trigger execution logic
+            e.preventDefault();
+            this.handleExecuteTool();
         });
-
-        // Note: Tool selection listener is added dynamically in renderToolList
     }
 
     // --- Getters for Configuration Elements (for orchestrator to add listeners) ---
@@ -170,75 +243,66 @@ export class McpUIView {
         this.argsList.innerHTML = ''; // Clear existing args
         if (args && args.length > 0) {
             args.forEach(arg => this.addArgumentInput(arg));
-        } else {
-             // Optionally add one empty input if list is empty?
-             // this.addArgumentInput('');
         }
     }
 
     // --- UI State Update Methods --- Called by Orchestrator via Callbacks
 
     public setInitialState(): void {
-        this.listToolsBtn.disabled = true;
-        this.listToolsBtn.style.display = 'none';
-        this.executeToolBtn.disabled = true;
-        this.connectingOverlay.style.display = 'none';
-        this.container.classList.remove('locked');
+        // Column 1
+        this.serverListUl.innerHTML = '';
+        this.connectionDetailsDiv.style.display = 'none'; // Hide form initially
+        this.clearServerForm(); // Clear form fields
+        this.connectionDetailsDiv.style.display = 'none'; // Hide form explicitly after clear
+        this.testConnectionBtn.disabled = true;
+        this.statusIndicator.className = 'status-indicator';
         this.errorMessageDiv.style.display = 'none';
+        this.connectingOverlay.style.display = 'none';
+
+        // Column 2
+        this.listToolsBtn.disabled = true;
         this.toolsListArea.style.display = 'none';
-        this.toolExecutionArea.style.display = 'none';
-        this.toolResultArea.style.display = 'none';
-        this.toolExecutingMsg.style.display = 'none';
         this.toolsLoadingMsg.style.display = 'none';
         this.toolsErrorMsg.style.display = 'none';
-        this.statusIndicator.className = 'status-indicator'; // Reset status
+        this.toolsListUl.innerHTML = '';
+
+        // Column 3
+        this.toolExecutionArea.style.display = 'none';
+        this.toolSelectPrompt.style.display = 'block';
+        this.executeToolBtn.disabled = true;
+        this.toolResultArea.style.display = 'none';
+        this.toolExecutingMsg.style.display = 'none';
+        this.toolResultError.style.display = 'none';
+        this.toolParamsForm.innerHTML = '';
+        this.selectedToolNameSpan.textContent = '';
+
         this.isListingToolsState = false;
+        this.selectedTool = null;
+        this.currentSelectedServerId = null;
+        this.lockUI(false); // Ensure UI is unlocked initially
     }
 
     public showConnecting(): void {
-        this.statusIndicator.className = 'status-indicator'; // Reset to default (pulsing)
-        this.errorMessageDiv.style.display = 'none'; // Hide previous errors
-        this.errorMessageDiv.textContent = '';
-        this.listToolsBtn.style.display = 'none'; // Hide buttons
-        this.listToolsBtn.disabled = true;
-        this.toolsListArea.style.display = 'none'; // Hide tool areas
-        this.toolExecutionArea.style.display = 'none';
-        this.executeToolBtn.disabled = true;
-        this.connectingOverlay.style.display = 'flex'; // Show overlay
-        this.container.classList.add('locked'); // Lock container inputs
-        this.testConnectionBtn.disabled = true; // Disable connection button
-        this.addArgBtn.disabled = true; // Disable arg button
-        this.disableArgumentInputs(); // Disable arg inputs/remove buttons
-        this.isListingToolsState = false; // Reset listing state
+        this.statusIndicator.className = 'status-indicator';
+        this.clearError(); // Clear all error messages
+        this.connectingOverlay.style.display = 'block';
+        this.lockUI(true);
     }
 
     public showConnected(isConnected: boolean): void {
-        this.logger?.LogDebug((a, b) => a(b), `showConnected called with isConnected: ${isConnected}`, "UI", "View", "State");
-        this.connectingOverlay.style.display = 'none'; // Hide overlay
-        this.container.classList.remove('locked'); // Unlock container
-        this.testConnectionBtn.disabled = false; // Enable connection button
-        this.addArgBtn.disabled = false; // Enable arg button
-        this.enableArgumentInputs(); // Enable arg inputs
+        this.connectingOverlay.style.display = 'none';
+        this.lockUI(false);
 
-        this.logger?.LogDebug((a, b) => a(b), `Current statusIndicator className BEFORE change: ${this.statusIndicator.className}`, "UI", "View", "State");
         if (isConnected) {
             this.statusIndicator.className = 'status-indicator connected';
-            this.logger?.LogDebug((a, b) => a(b), `Set statusIndicator className to: ${this.statusIndicator.className}`, "UI", "View", "State");
-            // Clear transient connection errors if they were displayed
-            if (this.errorMessageDiv.textContent?.includes('connection failed') || this.errorMessageDiv.textContent?.includes('Could not initiate')) {
-                this.errorMessageDiv.style.display = 'none';
-                this.errorMessageDiv.textContent = '';
-            }
-            this.listToolsBtn.style.display = 'inline-block'; // Show list tools button
-            this.listToolsBtn.disabled = false; // Enable it
-            // Keep execute button disabled until a tool is selected
-            this.executeToolBtn.disabled = !this.selectedTool;
+            this.listToolsBtn.disabled = false;
+            this.clearError('col1'); // Clear connection-related errors
         } else {
-            // This block shouldn't run when called with `true`
-            this.statusIndicator.className = 'status-indicator error'; // Show error status
-            this.logger?.LogDebug((a, b) => a(b), `Set statusIndicator className to (error state): ${this.statusIndicator.className}`, "UI", "View", "State");
+            this.statusIndicator.className = 'status-indicator error';
+            this.listToolsBtn.disabled = true;
+            this.clearToolListAndExecution(); // Clear cols 2/3 on disconnect/failure
         }
-        this.isListingToolsState = false; // Reset listing state
+        this.testConnectionBtn.disabled = !this.currentSelectedServerId;
     }
 
     public showDisconnected(code?: number | string): void {
@@ -251,7 +315,6 @@ export class McpUIView {
         this.toolExecutionArea.style.display = 'none';
         this.executeToolBtn.disabled = true;
         this.connectingOverlay.style.display = 'none'; // Ensure overlay is hidden
-        this.container.classList.remove('locked'); // Ensure container is unlocked
         this.testConnectionBtn.disabled = false; // Re-enable config controls
         this.addArgBtn.disabled = false;
         this.enableArgumentInputs();
@@ -260,72 +323,70 @@ export class McpUIView {
         this.isListingToolsState = false; // Reset listing state
     }
 
-    public showError(error: string, isConnectionError: boolean): void {
-        this.errorMessageDiv.textContent = `Error: ${error}`; // Display the error message
-        this.errorMessageDiv.style.display = 'block';
+    public showError(error: string, isConnectionError: boolean, targetColumn: 'col1' | 'col2' | 'col3' = 'col1'): void {
+        this.connectingOverlay.style.display = 'none'; // Hide overlay if it was shown
+        this.lockUI(false); // Unlock UI on error
 
-        // Reset UI elements based on the type of error
-        if (isConnectionError) {
-            // If it's a fundamental connection error, reset to a disconnected-like state
-            this.connectingOverlay.style.display = 'none'; // Hide overlay
-            this.container.classList.remove('locked'); // Unlock container
-            this.testConnectionBtn.disabled = false; // Enable config controls
-            this.addArgBtn.disabled = false;
-            this.enableArgumentInputs();
-            this.statusIndicator.className = 'status-indicator error'; // Show error status
-            // Ensure tool/execution areas are hidden
-            this.listToolsBtn.style.display = 'none';
-            this.listToolsBtn.disabled = true;
-            this.toolsListArea.style.display = 'none';
-            this.toolExecutionArea.style.display = 'none';
-            this.executeToolBtn.disabled = true;
-        } else {
-             // For non-connection errors (e.g., failed POST, command error during execution)
-             this.toolExecutingMsg.style.display = 'none'; // Ensure executing message is hidden
-             // Re-enable execute button *only if* a tool is still selected (connection state managed by orchestrator)
-             this.executeToolBtn.disabled = !this.selectedTool;
+        let errorElement: HTMLDivElement;
+        switch (targetColumn) {
+            case 'col2': errorElement = this.toolsErrorMsg; break;
+            case 'col3': errorElement = this.toolResultError; break;
+            case 'col1':
+            default: errorElement = this.errorMessageDiv; break;
         }
-        this.isListingToolsState = false; // Reset listing state on any error
+
+        if (errorElement) {
+             errorElement.textContent = error;
+             errorElement.style.display = 'block';
+        } else {
+             this.logger?.LogError(log => log(error), `Error display failed: targetDiv for ${targetColumn} not found. Message: ${error}`, "View", "ErrorHandling");
+             alert(`Error: ${error}`); // Fallback
+        }
+
+        if (isConnectionError) {
+            this.statusIndicator.className = 'status-indicator error';
+            this.listToolsBtn.disabled = true;
+            this.clearToolListAndExecution(); // Clear cols 2/3 on connection error
+        }
     }
 
-     public showLogMessage(source: string, content: string): void {
-         this.logger?.LogInfo((a, b) => a(b), `Log from MCP [${source}]: ${content}`, "UI", "View", "MCPLog", source); // Replaced console.log
-         // Optional: Display logs in a dedicated area in the UI
-         if (source === 'stderr') {
-             // Create a new element for the log entry
-             const logEntry = document.createElement('div');
-             logEntry.textContent = `[STDERR] ${content}`;
-             logEntry.style.whiteSpace = 'pre-wrap'; // Preserve formatting
-             logEntry.style.color = 'orange'; // Distinguish stderr logs
-             logEntry.style.fontSize = '0.9em';
-             logEntry.style.marginTop = '5px';
+    public showLogMessage(source: string, content: string): void {
+        this.logger?.LogInfo((a, b) => a(b), `Log from MCP [${source}]: ${content}`, "UI", "View", "MCPLog", source); // Replaced console.log
+        // Optional: Display logs in a dedicated area in the UI
+        if (source === 'stderr') {
+            // Create a new element for the log entry
+            const logEntry = document.createElement('div');
+            logEntry.textContent = `[STDERR] ${content}`;
+            logEntry.style.whiteSpace = 'pre-wrap'; // Preserve formatting
+            logEntry.style.color = 'orange'; // Distinguish stderr logs
+            logEntry.style.fontSize = '0.9em';
+            logEntry.style.marginTop = '5px';
 
-             // Append to a dedicated log container if it exists
-             const logOutput = document.getElementById('log-output');
-             if (logOutput) {
-                 logOutput.appendChild(logEntry);
-                 logOutput.scrollTop = logOutput.scrollHeight; // Auto-scroll to bottom
-             } else {
-                 // Fallback: Append cautiously to the main error display, could get noisy
-                 // this.errorMessageDiv.textContent += `\n[STDERR] ${content}`;
-                 // this.errorMessageDiv.style.display = 'block';
-             }
-         }
-     }
+            // Append to a dedicated log container if it exists
+            const logOutput = document.getElementById('log-output');
+            if (logOutput) {
+                logOutput.appendChild(logEntry);
+                logOutput.scrollTop = logOutput.scrollHeight; // Auto-scroll to bottom
+            } else {
+                // Fallback: Append cautiously to the main error display, could get noisy
+                // this.errorMessageDiv.textContent += `\n[STDERR] ${content}`;
+                // this.errorMessageDiv.style.display = 'block';
+            }
+        }
+    }
 
     // --- Tool Listing --- Called by Orchestrator
 
     public showFetchingTools(): void {
-        this.isListingToolsState = true; // Set listing state flag
-        this.toolsListArea.style.display = 'block'; // Show the area
-        this.toolsListUl.innerHTML = ''; // Clear previous list results
-        this.toolsErrorMsg.style.display = 'none'; // Hide previous errors
-        this.toolsLoadingMsg.textContent = 'Fetching tools...'; // Show loading message
+        this.clearError('col2'); // Clear previous tool errors
+        this.toolsListArea.style.display = 'block';
+        this.toolsLoadingMsg.textContent = 'Fetching tools...';
         this.toolsLoadingMsg.style.display = 'block';
-        this.listToolsBtn.disabled = true; // Disable button while fetching
-        this.toolExecutionArea.style.display = 'none'; // Hide execution area
-        this.currentTools = []; // Reset internal tool state
-        this.selectedTool = null;
+        this.toolsListUl.innerHTML = '';
+        this.toolExecutionArea.style.display = 'none';
+        this.toolSelectPrompt.style.display = 'block';
+        this.toolResultArea.style.display = 'none';
+         this.isListingToolsState = true;
     }
 
     // Check if UI is currently in the process of listing tools
@@ -334,156 +395,91 @@ export class McpUIView {
     }
 
     public renderToolList(tools: UIToolDefinition[]): void {
-        this.isListingToolsState = false; // Reset listing state flag
-        this.toolsLoadingMsg.style.display = 'none'; // Hide loading message
-        this.listToolsBtn.disabled = false; // Re-enable list button
-        this.toolsListUl.innerHTML = ''; // Clear previous list/loading
-        this.toolsErrorMsg.style.display = 'none'; // Hide error message
-        this.currentTools = tools; // Store tools locally for rendering form later
+        this.logger?.LogDebug((a,b) => a(b), `renderToolList called with ${tools?.length ?? 0} tools.`, "View", "Render"); // ADDED LOG
+        this.isListingToolsState = false;
+        this.currentTools = tools;
+        this.toolsLoadingMsg.style.display = 'none';
+        this.toolsListUl.innerHTML = '';
+        this.clearError('col2'); // Clear errors from previous attempts
 
         if (!tools || tools.length === 0) {
-            this.toolsLoadingMsg.textContent = 'No tools available from the client.'; // Show message
-            this.toolsLoadingMsg.style.display = 'block';
-        } else {
-            tools.forEach((tool, index) => {
-                const li = document.createElement('li');
-                // Basic styling, can be enhanced with CSS classes
-                li.style.cssText = 'margin-bottom: 10px; cursor: pointer; padding: 8px; border-radius: 4px; border: 1px solid transparent;';
-                li.setAttribute('data-tool-index', index.toString());
-                li.title = 'Click to select this tool';
-
-                const toolInfo = document.createElement('div');
-                toolInfo.innerHTML = `<strong>${tool.name}:</strong> ${tool.description || '<em>No description provided</em>'}`;
-                li.appendChild(toolInfo);
-
-                // Render parameters from inputSchema (expects JSON Schema object)
-                if (tool.inputSchema && typeof tool.inputSchema === 'object' && tool.inputSchema.properties) {
-                    this.renderSchemaParamsList(li, tool.inputSchema);
-                } else {
-                     const noParamsMsg = document.createElement('div');
-                     noParamsMsg.textContent = ' (No input parameters defined)';
-                     noParamsMsg.style.cssText = 'font-size: 0.9em; font-style: italic; margin-left: 20px;';
-                     li.appendChild(noParamsMsg);
-                }
-
-                // Add click listener for selection
-                li.addEventListener('click', () => {
-                    // Remove highlight from previously selected item
-                    this.toolsListUl.querySelectorAll('li').forEach(item => {
-                        item.style.backgroundColor = 'transparent';
-                        item.style.border = '1px solid transparent';
-                    });
-                    // Highlight newly selected item
-                    li.style.backgroundColor = 'var(--hover-bg)'; // Use a theme variable for highlight
-                    li.style.border = '1px solid var(--input-border)';
-                    // Call internal handler to update state and render form
-                    this.handleToolSelect(index);
-                });
-                this.toolsListUl.appendChild(li);
-            });
+            this.logger?.LogDebug((a,b) => a(b), `No tools found, displaying message.`, "View", "Render"); // ADDED LOG
+            this.toolsListUl.innerHTML = '<li>No tools found.</li>';
+            this.toolsListArea.style.display = 'block';
+             this.clearToolListAndExecution(); // Reset Col 3
+            return;
         }
+
+        this.logger?.LogDebug((a,b) => a(b), `Rendering ${tools.length} tools. Setting toolsListArea display to block.`, "View", "Render"); // ADDED LOG
+        this.toolsListArea.style.display = 'block'; // Ensure visible
+
+        tools.forEach((tool, index) => {
+            const li = document.createElement('li');
+            li.textContent = tool.name;
+            li.title = tool.description || 'No description available';
+            li.setAttribute('data-tool-index', index.toString());
+            li.setAttribute('role', 'button');
+            li.tabIndex = 0;
+            // Click/Keydown listeners are now added in bindEventListeners using delegation
+            this.toolsListUl.appendChild(li);
+        });
     }
-
-    // Helper to render parameter list for display within the tool list item
-    private renderSchemaParamsList(parentLi: HTMLLIElement, schema: any): void {
-         const properties = schema.properties as { [key: string]: any };
-         const requiredParams = schema.required || [];
-         const paramNames = Object.keys(properties);
-
-         if (paramNames.length > 0) {
-             const paramsUl = document.createElement('ul');
-             paramsUl.style.cssText = 'margin-left: 20px; margin-top: 5px; list-style-type: circle;';
-
-             paramNames.forEach((paramName) => {
-                 const paramSchema = properties[paramName];
-                 const isRequired = requiredParams.includes(paramName);
-                 const paramType = paramSchema.type || 'any';
-                 const paramDescription = paramSchema.description || ''; // Get description
-
-                 const paramLi = document.createElement('li');
-                 paramLi.style.cssText = 'font-size: 0.9em; margin-bottom: 3px;';
-                 const requiredStar = isRequired ? '<span style="color:red;" title="Required">*</span>' : '';
-                 // Display name, type, required status, and description
-                 paramLi.innerHTML = `<em>${paramName} (${paramType})${requiredStar}</em>: ${paramDescription}`;
-                 paramsUl.appendChild(paramLi);
-             });
-             parentLi.appendChild(paramsUl);
-         } else {
-             // Optionally indicate if schema exists but has no properties
-             const noParamsMsg = document.createElement('div');
-             noParamsMsg.textContent = ' (No input parameters defined in schema)';
-             noParamsMsg.style.cssText = 'font-size: 0.9em; font-style: italic; margin-left: 20px;';
-             parentLi.appendChild(noParamsMsg);
-         }
-    }
-
 
     public showToolListError(errorMessage: string): void {
-        this.isListingToolsState = false; // Reset listing state flag
-        this.toolsLoadingMsg.style.display = 'none'; // Hide loading message
-        this.toolsErrorMsg.textContent = `Failed to list tools: ${errorMessage}`; // Show error
-        this.toolsErrorMsg.style.display = 'block';
-        this.listToolsBtn.disabled = false; // Re-enable list button so user can try again
-        this.toolsListUl.innerHTML = ''; // Clear any potential partial list
-        this.currentTools = []; // Reset internal state
-        this.selectedTool = null;
+        this.isListingToolsState = false;
+        this.toolsLoadingMsg.style.display = 'none';
+        this.toolsListArea.style.display = 'block';
+        this.toolsListUl.innerHTML = '';
+        this.showError(errorMessage, false, 'col2'); // Show error in Col 2 div
+         this.clearToolListAndExecution(); // Reset Col 3
     }
 
     // --- Tool Selection and Execution --- (Internal UI Logic)
 
     // Called when a tool <li> element is clicked
     private handleToolSelect(toolIndex: number): void {
-        if (toolIndex < 0 || toolIndex >= this.currentTools.length) {
-            this.logger?.LogError((a, b) => a(b), `Invalid tool index selected in UI: ${toolIndex}`, "UI", "View", "ToolSelection"); // Replaced console.error
-            return;
-        }
-        this.selectedTool = this.currentTools[toolIndex]; // Update internal selected tool state
-        this.logger?.LogDebug((a, b) => a(b), `Selected tool: ${this.selectedTool.name}`, "UI", "View", "ToolSelection"); // Replaced console.log (use Debug level)
+        if (toolIndex < 0 || toolIndex >= this.currentTools.length) return;
 
-        // Notify the orchestrator about the selection
-        this.actions?.onToolSelected(toolIndex);
+        this.selectedTool = this.currentTools[toolIndex];
 
-        // Update UI elements for the selected tool
-        this.selectedToolNameSpan.textContent = this.selectedTool.name;
-        this.toolParamsForm.innerHTML = ''; // Clear old form fields
-        this.toolResultArea.style.display = 'none'; // Hide previous results
-        this.toolResultOutput.textContent = '';
-        this.toolResultError.style.display = 'none';
-        this.toolResultError.textContent = '';
-        this.toolExecutingMsg.style.display = 'none'; // Hide executing message
-        // Enable execute button (connection status is handled by orchestrator enable/disable)
-        this.executeToolBtn.disabled = false;
+        const items = this.toolsListUl.querySelectorAll('li');
+        items.forEach((item, index) => {
+            if (index === toolIndex) item.classList.add('selected');
+            else item.classList.remove('selected');
+        });
 
-        // Render the form based on the selected tool's schema
         this.renderToolForm(this.selectedTool);
-
-        // Show the execution area and scroll to it
-        this.toolExecutionArea.style.display = 'block';
-        this.toolExecutionArea.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        this.actions?.onToolSelected(toolIndex);
     }
 
     // Renders the parameters form based on the tool's inputSchema
     private renderToolForm(tool: UIToolDefinition): void {
-        // Expect inputSchema to be a JSON Schema object with properties
-        if (tool.inputSchema && typeof tool.inputSchema === 'object' && tool.inputSchema.properties) {
-            const properties = tool.inputSchema.properties as { [key: string]: any };
-            const requiredParams = new Set(tool.inputSchema.required || []);
-            const paramNames = Object.keys(properties);
+        this.clearError('col3'); // Clear previous execution errors
+        this.toolResultArea.style.display = 'none';
+        this.toolParamsForm.innerHTML = '';
+        this.selectedToolNameSpan.textContent = tool.name;
 
-            if (paramNames.length > 0) {
-                paramNames.forEach((paramName) => {
-                    const paramSchema = properties[paramName];
-                    // Create the form group (label + input) for this parameter
-                    const formGroup = this.createFormElement(paramName, paramSchema, requiredParams.has(paramName));
-                    this.toolParamsForm.appendChild(formGroup);
-                });
-            } else {
-                this.toolParamsForm.innerHTML = '<p><em>This tool takes no parameters (schema properties empty).</em></p>';
-            }
+        const schema = tool.inputSchema;
+        const properties = schema?.properties;
+        const requiredParams = schema?.required || [];
+
+        if (properties && Object.keys(properties).length > 0) {
+            Object.entries(properties).forEach(([paramName, paramSchema]) => {
+                const isRequired = requiredParams.includes(paramName);
+                const formGroup = this.createFormElement(paramName, paramSchema, isRequired);
+                this.toolParamsForm.appendChild(formGroup);
+            });
+             this.executeToolBtn.disabled = false;
+             this.toolExecutionArea.style.display = 'block';
+             this.toolSelectPrompt.style.display = 'none';
         } else {
-            // Handle cases where schema is missing, not an object, or has no properties
-            this.logger?.LogWarning((a, b) => a(b), `Tool schema is not valid or missing properties. Cannot render form.`, "UI", "View", "ToolForm"); // Replaced console.warn
-             this.toolParamsForm.innerHTML = '<p><em>This tool takes no defined parameters.</em></p>';
+            const noParamsMsg = document.createElement('p');
+            noParamsMsg.textContent = 'This tool has no parameters.';
+            noParamsMsg.style.fontStyle = 'italic';
+            this.toolParamsForm.appendChild(noParamsMsg);
+             this.executeToolBtn.disabled = false;
+             this.toolExecutionArea.style.display = 'block';
+             this.toolSelectPrompt.style.display = 'none';
         }
     }
 
@@ -557,182 +553,111 @@ export class McpUIView {
 
     // Internal handler called by execute button click or form submission
     private handleExecuteTool(): void {
-        if (!this.selectedTool) { 
-            this.logger?.LogError((a, b) => a(b), "Execute error: No tool selected.", "UI", "View", "ToolExecution"); // Replaced console.error
-            return; 
-        }
+        if (!this.selectedTool || !this.actions) return;
 
-        // Use HTML5 form validation before proceeding
-        if (!this.toolParamsForm.checkValidity()) {
-             this.toolParamsForm.reportValidity(); // Show browser validation messages
-             return;
-        }
-
-        // Update UI to show executing state *before* calling action
-        this.showExecutingTool();
-
-        // Collect parameters from the form
-        const formData = new FormData(this.toolParamsForm);
         const params: { [key: string]: any } = {};
+        const formElements = this.toolParamsForm.elements;
+        let isValid = true;
 
-        // Process parameters based on the *selected tool's schema*
-        if (this.selectedTool.inputSchema && typeof this.selectedTool.inputSchema === 'object' && this.selectedTool.inputSchema.properties) {
-            const properties = this.selectedTool.inputSchema.properties as { [key: string]: any };
-            Object.keys(properties).forEach((paramName) => {
-                const paramSchema = properties[paramName];
-                const value = formData.get(paramName) as string | null; // Get raw value from form
+        for (let i = 0; i < formElements.length; i++) {
+            const element = formElements[i] as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement;
+            if (!element.name) continue;
 
-                // Only include parameters that have a non-empty value
-                // Check required fields are handled by checkValidity()
-                if (value !== null && value !== '') {
-                    const paramType = paramSchema.type || 'string'; // Default to string
-                    try {
-                        // --- Type Conversion based on Schema ---
-                        if (paramType === 'number' || paramType === 'integer') {
-                            const numValue = parseFloat(value);
-                            if (!isNaN(numValue)) { // Ensure conversion is valid
-                                params[paramName] = numValue;
-                            } else {
-                                this.logger?.LogWarning((a, b) => a(b), `Invalid number input for ${paramName}: '${value}'. Skipping parameter.`, "UI", "View", "ToolExecution", "InputValidation"); // Replaced console.warn
-                                // Optionally show an error to the user here instead of just console warning
-                            }
-                        } else if (paramType === 'boolean') {
-                            // Handle 'true'/'false' strings from select dropdown
-                            params[paramName] = value.toLowerCase() === 'true';
-                        } else if (paramType === 'array') {
-                            // Split by comma, trim whitespace, filter empty strings
-                             const itemType = paramSchema.items?.type || 'string';
-                             params[paramName] = value.split(',')
-                                .map(s => s.trim()) // Trim whitespace
-                                .filter(s => s !== '') // Remove empty strings
-                                .map(item => { // Attempt type conversion for array items if needed
-                                     if (itemType === 'number' || itemType === 'integer') {
-                                         const numItem = parseFloat(item);
-                                         return isNaN(numItem) ? null : numItem; // Return null if conversion fails
-                                     }
-                                     if (itemType === 'boolean') return item.toLowerCase() === 'true';
-                                     // TODO: Handle nested objects/arrays if schema allows?
-                                     return item; // Default to string
-                                 })
-                                 .filter(item => item !== null); // Filter out items that failed conversion (e.g., NaN)
+            let value: any;
+            const schema = this.selectedTool.inputSchema?.properties?.[element.name];
+            const type = schema?.type || 'string';
 
-                        } else { // Default to string (includes 'string' type)
-                            params[paramName] = value;
-                        }
-                    } catch (e: unknown) { // Catch unknown for better type safety
-                        const errorMsg = e instanceof Error ? e.message : String(e);
-                        this.logger?.LogError((a, b) => a(b), `Error processing parameter ${paramName} with value '${value}': ${errorMsg}`, "UI", "View", "ToolExecution", "InputProcessing"); // Replaced console.error
-                        // Optionally show an error to the user
-                        this.showError(`Error processing parameter ${paramName}. Check logs.`, false);
+            if (element.type === 'checkbox') {
+                value = (element as HTMLInputElement).checked;
+            } else {
+                value = element.value;
+            }
+
+            if (element.required && (value === '' || value === null || value === undefined)) {
+                isValid = false;
+                element.reportValidity?.(); // Use browser validation UI
+                 this.logger?.LogWarning(log => log(element.name), `Empty input for required field: ${element.name}`, "View", "Validation");
+            } else if (value !== '' && value !== null && value !== undefined) {
+                // Type conversion
+                try {
+                    if (type === 'number' || type === 'integer') {
+                        value = parseFloat(value);
+                        if (isNaN(value)) throw new Error('Invalid number');
+                    } else if (type === 'boolean' && element.type !== 'checkbox') {
+                        // Handle boolean from select/text (shouldn't happen often with checkbox)
+                        value = value.toLowerCase() === 'true';
                     }
+                    // Add other type conversions (e.g., array from string) if needed
+                } catch (e: any) {
+                    isValid = false;
+                    element.reportValidity?.();
+                     this.logger?.LogError(log => log(element.name), `Invalid value for ${element.name}: ${e.message}`, "View", "Validation");
                 }
-                 // If value is null or empty, but the field was *required*, checkValidity should have caught it.
-                 // If it was optional and empty, we simply don't include it in the params.
-            });
-        } else {
-             // This case should ideally not happen if a tool was selected, but log it.
-             this.logger?.LogWarning((a, b) => a(b), `Cannot collect parameters: Tool inputSchema is missing or invalid.`, "UI", "View", "ToolExecution"); // Replaced console.warn
+            }
+            params[element.name] = value;
         }
 
-        // Notify the orchestrator to actually execute the tool with the collected params
-        this.actions?.onExecuteTool(params);
+        if (isValid) {
+            this.clearError('col3');
+            this.showExecutingTool(); // Show executing message
+            this.actions.onExecuteTool(params);
+        } else {
+             this.showError("Please fix the errors in the parameters.", false, 'col3');
+        }
     }
 
     // Called by orchestrator before sending execute request
     public showExecutingTool(): void {
-        this.toolResultArea.style.display = 'none'; // Hide previous results
-        this.toolResultOutput.textContent = '';
-        this.toolResultError.style.display = 'none';
-        this.toolResultError.textContent = '';
-        this.toolExecutingMsg.style.display = 'block'; // Show "Executing..." indicator
-        this.executeToolBtn.disabled = true; // Disable button while executing
+        this.clearError('col3');
+        this.toolExecutingMsg.style.display = 'block';
+        this.toolResultArea.style.display = 'none';
+        this.executeToolBtn.disabled = true;
     }
 
     // Called by orchestrator when tool execution result (success/error) is received
     public displayToolResult(result: { status: 'success'; data: any } | { status: 'error'; message: string; details?: any }): void {
-        this.toolExecutingMsg.style.display = 'none'; // Hide "Executing..."
-        // Re-enable execute button (orchestrator checks connection status)
+        this.toolExecutingMsg.style.display = 'none';
+        this.toolResultArea.style.display = 'block';
         this.executeToolBtn.disabled = false;
-        this.toolResultArea.style.display = 'block'; // Show result area
 
         if (result.status === 'success') {
-            let outputData = '';
-            // Attempt to pretty-print JSON objects/arrays
-            if (typeof result.data === 'object' && result.data !== null) {
-                try { outputData = JSON.stringify(result.data, null, 2); } // Pretty print with 2 spaces
-                catch { outputData = String(result.data); } // Fallback for complex objects that fail stringify
-            } else {
-                outputData = String(result.data ?? ''); // Handle null/undefined/primitive types
-            }
-            this.toolResultOutput.textContent = outputData; // Display in output area
-            this.toolResultError.style.display = 'none'; // Hide error area
-            this.toolResultError.textContent = '';
-        } else { // status === 'error'
-            this.toolResultOutput.textContent = ''; // Clear success output area
-            let errorContent = `Error: ${result.message || 'Execution failed'}`;
-            if (result.details) {
-                let detailsString = '';
-                // Try to pretty-print error details if they are object/array
-                if (typeof result.details === 'object' && result.details !== null) {
-                    try { detailsString = JSON.stringify(result.details, null, 2); }
-                    catch { detailsString = String(result.details); } // Fallback
-                } else {
-                    detailsString = String(result.details);
-                }
-                errorContent += `\nDetails: ${detailsString}`;
-            }
-            this.toolResultError.textContent = errorContent; // Display error content
-            this.toolResultError.style.display = 'block'; // Show error area
+            this.toolResultOutput.textContent = JSON.stringify(result.data, null, 2);
+            this.clearError('col3'); // Clear error display
+            this.toolResultOutput.style.display = 'block';
+        } else {
+             const errorMsg = `${result.message}${result.details ? '\nDetails: ' + JSON.stringify(result.details, null, 2) : ''}`;
+             this.showError(errorMsg, false, 'col3');
+             this.toolResultOutput.style.display = 'none';
         }
-        // Scroll the results area into view
-        this.toolResultArea.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+         this.toolResultArea.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
-
 
     // --- Argument Input Handling (Internal UI) ---
 
     // Adds a new argument input field to the list
     public addArgumentInput(value = ''): void {
         const li = document.createElement('li');
-        li.style.display = 'flex';
-        li.style.alignItems = 'center';
-        li.style.marginBottom = '5px';
-
         const input = document.createElement('input');
         input.type = 'text';
         input.value = value;
-        input.placeholder = 'Enter argument';
-        input.className = 'arg-input-dynamic'; // Class for identification and event delegation
-        input.style.cssText = 'flex-grow: 1; margin-right: 5px; padding: 8px; border: 1px solid var(--input-border); border-radius: 3px; background-color: var(--input-bg); color: var(--text-color);';
-        // Check if input should be disabled (e.g., during connection attempt)
-        input.disabled = this.testConnectionBtn.disabled; // Disable if connect button is disabled
+        input.placeholder = 'Argument';
+        input.classList.add('arg-input-dynamic');
 
         const removeBtn = document.createElement('button');
-        removeBtn.textContent = '-';
+        removeBtn.textContent = 'X';
+        removeBtn.classList.add('remove-arg-btn');
         removeBtn.title = 'Remove Argument';
-        removeBtn.className = 'remove-arg-btn'; // Class for identification
-        removeBtn.type = 'button'; // Important: Prevent form submission if argsList is somehow inside a form
-        removeBtn.style.cssText = 'padding: 5px 8px; background-color: var(--button-bg); color: var(--button-text); border: none; border-radius: 3px; cursor: pointer; font-size: 0.9em; line-height: 1;';
-        // Disable button based on connection button state
-        removeBtn.disabled = this.testConnectionBtn.disabled;
-
-        // Add listener to remove the <li> element when remove button is clicked
         removeBtn.addEventListener('click', () => {
-             li.remove();
-             // No need to call action here, parent listener on argsList handles notification
+            li.remove();
+            this.actions?.onArgumentInputChange(); // Notify controller after removal
         });
 
         li.appendChild(input);
         li.appendChild(removeBtn);
         this.argsList.appendChild(li);
-
-        // Focus the newly added input field
-        if (!input.disabled) { // Only focus if not disabled
-             input.focus();
-        }
-
-        // Notify orchestrator AFTER adding the input (via delegated listener is better)
-        // this.actions?.onArgumentInputChange?.();
+        // Should we disable based on lockUI instead?
+        // input.disabled = this.testConnectionBtn.disabled;
+        // removeBtn.disabled = this.testConnectionBtn.disabled;
     }
 
     // Disables all dynamic argument inputs and remove buttons
@@ -745,6 +670,192 @@ export class McpUIView {
     private enableArgumentInputs(): void {
         this.argsList.querySelectorAll<HTMLInputElement>('.arg-input-dynamic').forEach(input => input.disabled = false);
         this.argsList.querySelectorAll<HTMLButtonElement>('.remove-arg-btn').forEach(button => button.disabled = false);
+    }
+
+    // NEW Helper: Clear Columns 2 & 3 on disconnect/server change
+    public clearToolListAndExecution(): void {
+        this.toolsListArea.style.display = 'none';
+        this.toolsListUl.innerHTML = '';
+        this.toolsErrorMsg.style.display = 'none';
+        this.toolExecutionArea.style.display = 'none';
+        this.toolSelectPrompt.style.display = 'block';
+        this.toolResultArea.style.display = 'none';
+        this.toolExecutingMsg.style.display = 'none';
+        this.toolResultError.style.display = 'none';
+        this.selectedTool = null;
+        this.currentTools = [];
+        this.executeToolBtn.disabled = true;
+    }
+
+    // --- Utility / Helper Methods ---
+
+    // lockUI (Updated selectors, added serverListUl)
+    private lockUI(lock: boolean): void {
+        const elementsToLock: Array<HTMLInputElement | HTMLSelectElement | HTMLButtonElement> = [
+             this.serverNameInput, this.transportSelect, this.commandInput,
+             this.addArgBtn, this.saveServerBtn, this.testConnectionBtn,
+             this.listToolsBtn,
+             this.executeToolBtn
+        ];
+
+        this.serverListUl.style.pointerEvents = lock ? 'none' : 'auto';
+        this.toolsListUl.style.pointerEvents = lock ? 'none' : 'auto';
+        this.argsList.style.pointerEvents = lock ? 'none' : 'auto';
+
+        elementsToLock.forEach(el => { if (el) el.disabled = lock; });
+
+         const columns = document.querySelectorAll('.column');
+         columns.forEach(col => col.classList.toggle('locked', lock));
+
+         // Always keep Add Server button enabled
+         this.addServerBtn.disabled = false;
+    }
+
+    // NEW: Get all data from the server config form
+    public getServerFormData(): McpServerConfig {
+        const id = this.currentSelectedServerId || 'new';
+        const name = this.serverNameInput.value.trim();
+        const transport = this.transportSelect.value;
+        const command = this.commandInput.value.trim();
+        const args = this.getAllArguments();
+        return { id, name, transport, command, args };
+    }
+
+    // ADDED: Highlight selected server (public)
+    public setSelectedServer(serverId: string | null): void {
+        this.currentSelectedServerId = serverId;
+        const items = this.serverListUl.querySelectorAll('.server-item');
+        items.forEach(item => {
+            if (item.getAttribute('data-server-id') === serverId) {
+                item.classList.add('selected');
+            } else {
+                item.classList.remove('selected');
+            }
+        });
+        this.connectionDetailsDiv.style.display = serverId ? 'block' : 'none';
+        // Reset connection status indicator when selection changes
+        this.statusIndicator.className = 'status-indicator';
+        // Only clear form if *nothing* is selected (handled by controller on Add)
+        // if (!serverId) { this.clearServerForm(); }
+    }
+
+    // ADDED: Populate the form with server details (public)
+    public populateServerForm(config: McpServerConfig): void {
+        this.clearError(); // Clear errors when loading new data
+        this.serverNameInput.value = config.name;
+        this.transportSelect.value = config.transport;
+        this.commandInput.value = config.command;
+        this.renderArgumentInputs(config.args);
+        this.saveServerBtn.textContent = "Update Server";
+        this.connectionDetailsDiv.style.display = 'block';
+        this.testConnectionBtn.disabled = false; // Enable connection test for selected server
+        this.statusIndicator.className = 'status-indicator'; // Reset status on select
+    }
+
+    // ADDED: Clear the server form (public)
+    public clearServerForm(): void {
+        this.clearError(); // Clear Col 1 errors
+        this.serverNameInput.value = '';
+        this.transportSelect.value = 'STDIO';
+        this.commandInput.value = '';
+        this.renderArgumentInputs([]);
+        this.saveServerBtn.textContent = "Add Server";
+        this.connectionDetailsDiv.style.display = 'block'; // Keep visible for adding
+        this.testConnectionBtn.disabled = true; // Disable test until saved/selected
+        this.statusIndicator.className = 'status-indicator';
+        this.currentSelectedServerId = null; // Ensure internal view state is cleared
+    }
+
+    // Helper: Clear error messages from specified columns or all
+    private clearError(targetColumn?: 'col1' | 'col2' | 'col3'): void {
+        const clearDiv = (div: HTMLDivElement) => {
+            if (div) {
+                div.textContent = '';
+                div.style.display = 'none';
+            }
+        };
+        if (!targetColumn || targetColumn === 'col1') clearDiv(this.errorMessageDiv);
+        if (!targetColumn || targetColumn === 'col2') clearDiv(this.toolsErrorMsg);
+        if (!targetColumn || targetColumn === 'col3') clearDiv(this.toolResultError);
+    }
+
+    // *** NEW METHOD START ***
+    /**
+     * Renders the list of servers in the UI.
+     * @param servers - The array of server configurations to display.
+     * @param currentSelectedServerId - The ID of the server currently selected (if any).
+     */
+    public renderServerList(servers: McpServerConfig[], currentSelectedServerId: string | null): void {
+        this.logger?.LogDebug((a,b)=>a(b), `Rendering server list with ${servers.length} servers. Selected: ${currentSelectedServerId}`, "View", "Render");
+        this.serverListUl.innerHTML = ''; // Clear the current list
+
+        if (servers.length === 0) {
+            const li = document.createElement('li');
+            li.textContent = 'No servers configured. Click "+" to add one.';
+            li.style.fontStyle = 'italic';
+            this.serverListUl.appendChild(li);
+            this.connectionDetailsDiv.style.display = 'none'; // Hide details if no servers
+        } else {
+             servers.forEach(server => {
+                const li = document.createElement('li');
+                li.classList.add('server-item', 'list-group-item', 'd-flex', 'justify-content-between', 'align-items-center');
+                li.setAttribute('data-server-id', server.id);
+                li.style.cursor = 'pointer'; // Indicate clickable
+                li.tabIndex = 0; // Make it focusable
+
+                const nameSpan = document.createElement('span');
+                nameSpan.textContent = server.name;
+                nameSpan.classList.add('server-name'); // Add class for styling/selection
+
+                const buttonsDiv = document.createElement('div');
+                buttonsDiv.classList.add('server-item-buttons');
+
+                const editBtn = document.createElement('button');
+                editBtn.innerHTML = '<i class="fas fa-edit"></i>'; // Using Font Awesome icon
+                editBtn.classList.add('btn', 'btn-sm', 'btn-outline-secondary', 'edit-btn', 'me-1'); // Added me-1 for margin
+                editBtn.setAttribute('aria-label', `Edit ${server.name}`);
+                editBtn.title = `Edit ${server.name}`; // Tooltip
+
+                const deleteBtn = document.createElement('button');
+                deleteBtn.innerHTML = '<i class="fas fa-trash-alt"></i>'; // Using Font Awesome icon
+                deleteBtn.classList.add('btn', 'btn-sm', 'btn-outline-danger', 'delete-btn');
+                deleteBtn.setAttribute('aria-label', `Delete ${server.name}`);
+                 deleteBtn.title = `Delete ${server.name}`; // Tooltip
+
+                buttonsDiv.appendChild(editBtn);
+                buttonsDiv.appendChild(deleteBtn);
+
+                li.appendChild(nameSpan);
+                li.appendChild(buttonsDiv);
+
+                if (server.id === currentSelectedServerId) {
+                    li.classList.add('active'); // Bootstrap class for selected item
+                    // If a server is selected, ensure the details form is visible
+                    this.connectionDetailsDiv.style.display = '';
+                }
+
+                 // Prevent button clicks from triggering the li click listener immediately
+                 editBtn.addEventListener('click', (e) => e.stopPropagation());
+                 deleteBtn.addEventListener('click', (e) => e.stopPropagation());
+
+
+                this.serverListUl.appendChild(li);
+            });
+             // If no server is selected after rendering, but there are servers, hide details
+             if (!currentSelectedServerId && servers.length > 0) {
+                  // Don't hide if a server was just added/saved (controller handles showing form)
+                  // Only hide if explicitly no server is selected (e.g. after deletion of selected)
+                  // Let the controller decide visibility via populate/clear form methods
+             } else if (servers.length > 0 && currentSelectedServerId) {
+                 this.connectionDetailsDiv.style.display = ''; // Ensure visible if selection exists
+             }
+        }
+    }
+    // *** NEW METHOD END ***
+
+    // ADDED: Hide the server form
+    public hideServerForm(): void {
+        this.connectionDetailsDiv.style.display = 'none';
     }
 }
 
