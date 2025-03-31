@@ -1,33 +1,46 @@
 const http = require('http');
-const { spawn } = require('child_process');
 const url = require('url');
+// Try requiring the main SDK entry point
+const mcpSdk = require('@modelcontextprotocol/sdk');
+const { StdioClientTransport, getDefaultEnvironment } = mcpSdk.client.stdio;
+const { findActualExecutable } = require('spawn-rx');
+const { parse: shellParseArgs } = require('shell-quote');
 
-// JSDoc types for clarity (optional but helpful)
 /**
  * @typedef {import('express').Request} Request
  * @typedef {import('express').Response} Response
  * @typedef {import('express').NextFunction} NextFunction
- * @typedef {import('child_process').ChildProcessWithoutNullStreams} ChildProcess
+ * @typedef {import('@modelcontextprotocol/sdk/shared/transport').Transport} McpTransport
  */
 
 /**
  * @typedef {object} SseClient
  * @property {string} id
- * @property {Response} response
- * @property {ChildProcess | null} mcpProcess
+ * @property {Response} response - Express Response object for SSE
+ * @property {McpTransport | null} mcpTransport - Transport to the MCP server process
  */
 
 /**
- * @typedef {object} PostRequestData
- * @property {string} type
- * @property {any} payload
+ * @typedef {object} JsonRpcRequest
+ * @property {string} jsonrpc
+ * @property {string} method
+ * @property {any} [params]
  * @property {string | number} [id]
  */
+
+// Get default environment from SDK, potentially merged with custom vars later
+const defaultEnvironment = {
+  ...getDefaultEnvironment(),
+  // Add any base environment variables for your proxy here if needed
+  // ...(process.env.MCP_PROXY_ENV_VARS ? JSON.parse(process.env.MCP_PROXY_ENV_VARS) : {}),
+};
 
 class McpProxyHandler {
     constructor() {
         /** @type {Map<string, SseClient>} */
         this.clients = new Map();
+        /** @type {Map<string, McpTransport>} */
+        this.clientTransports = new Map(); // Store MCP transports separately
     }
 
     generateClientId() {
@@ -40,43 +53,58 @@ class McpProxyHandler {
      * @param {any} payload
      */
     sendSseMessage(client, type, payload) {
+        // Ensure client is still valid before sending
+        if (!this.clients.has(client.id) || !client.response.writable) {
+             console.warn(`[MCP Proxy WARN] Attempted to send SSE to disconnected/invalid client ${client.id}.`);
+             this.cleanupClient(client); // Clean up if detected here
+             return;
+        }
         const message = JSON.stringify({ type, payload });
         console.log(`[MCP Proxy SSE] > Client ${client.id}: Type=${type}`);
-
-        if (client.response.writable) {
-            client.response.write(`data: ${message}\n\n`);
-        } else {
-            console.warn(`[MCP Proxy WARN] Attempted to write to closed SSE stream for client ${client.id}. Cleaning up.`);
-            this.cleanupClient(client);
-        }
+        client.response.write(`data: ${message}\n\n`);
     }
 
     /**
-     * @param {SseClient | undefined} client
+     * @param {SseClient | undefined | string} clientOrId
      */
-    cleanupClient(client) {
-        if (!client) return;
+    cleanupClient(clientOrId) {
+        const clientId = typeof clientOrId === 'string' ? clientOrId : clientOrId?.id;
+        if (!clientId) return;
 
-        console.log(`[MCP Proxy] Cleaning up client ${client.id}.`);
-        if (client.mcpProcess && !client.mcpProcess.killed) {
-            console.log(`[MCP Proxy] Killing MCP process (PID: ${client.mcpProcess.pid}) for client ${client.id}.`);
-            client.mcpProcess.kill();
+        const client = this.clients.get(clientId);
+        const mcpTransport = this.clientTransports.get(clientId);
+
+        console.log(`[MCP Proxy] Cleaning up client ${clientId}.`);
+
+        // Close MCP Transport if it exists and hasn't been closed
+        if (mcpTransport) {
+            console.log(`[MCP Proxy] Closing MCP transport for client ${clientId}.`);
+            mcpTransport.close().catch(err => {
+                console.error(`[MCP Proxy] Error closing MCP transport for ${clientId}:`, err);
+            });
+            this.clientTransports.delete(clientId);
         }
-        this.clients.delete(client.id);
-        if (client.response.writable) {
+
+        // Close SSE Response stream if it exists and is writable
+        if (client && client.response.writable) {
             try {
-                 client.response.end();
+                console.log(`[MCP Proxy] Ending SSE response stream for client ${clientId}.`);
+                client.response.end();
             } catch (e) {
-                 console.error(`[MCP Proxy] Error ending response stream for client ${client.id}:`, e);
+                console.error(`[MCP Proxy] Error ending response stream for client ${clientId}:`, e);
             }
         }
+
+        // Remove client from map
+        this.clients.delete(clientId);
+        console.log(`[MCP Proxy] Client ${clientId} fully cleaned up.`);
     }
 
     /**
      * @param {Request} req
      * @param {Response} res
      */
-    handleGetRequest(req, res) {
+    async handleGetRequest(req, res) { // Make async
         res.writeHead(200, {
             'Content-Type': 'text/event-stream',
             'Cache-Control': 'no-cache',
@@ -86,142 +114,131 @@ class McpProxyHandler {
 
         const clientId = this.generateClientId();
         /** @type {SseClient} */
-        const newClient = { id: clientId, response: res, mcpProcess: null };
+        const newClient = { id: clientId, response: res, mcpTransport: null }; // mcpTransport will be set later
         this.clients.set(clientId, newClient);
         console.log(`[MCP Proxy] Client ${clientId} connected via SSE.`);
+
+        req.on('close', () => {
+            console.log(`[MCP Proxy] Client ${clientId} disconnected (SSE connection closed).`);
+            this.cleanupClient(clientId); // Use ID for cleanup
+        });
 
         const parsedUrl = url.parse(req.url || '', true);
         const { transport, command, args: argsString, env: envString } = parsedUrl.query;
 
+        // --- Parameter Validation ---
         if (typeof command !== 'string' || !command) {
             this.sendSseMessage(newClient, 'connectionStatus', { status: 'error', error: 'Missing or invalid "command" query parameter.' });
-            this.cleanupClient(newClient);
+            this.cleanupClient(clientId);
             console.error(`[MCP Proxy] Client ${clientId} disconnected: Bad configuration (command).`);
             return;
         }
 
-        let parsedArgs = [];
+        let origArgs = []; // Use shell-quote for args
         if (typeof argsString === 'string') {
             try {
-                parsedArgs = JSON.parse(argsString);
-                if (!Array.isArray(parsedArgs)) throw new Error('Args must be a JSON array.');
+                // Use shellParseArgs for robust argument parsing
+                const parsedShellArgs = shellParseArgs(argsString);
+                // shellParseArgs returns an array of strings or objects for comments/globs, filter for strings
+                origArgs = parsedShellArgs.filter(arg => typeof arg === 'string');
             } catch (e) {
-                this.sendSseMessage(newClient, 'connectionStatus', { status: 'error', error: `Invalid "args" query parameter (must be JSON array): ${e.message}` });
-                this.cleanupClient(newClient);
+                const errMsg = e instanceof Error ? e.message : String(e);
+                this.sendSseMessage(newClient, 'connectionStatus', { status: 'error', error: `Invalid "args" query parameter format: ${errMsg}` });
+                this.cleanupClient(clientId);
                 console.error(`[MCP Proxy] Client ${clientId} disconnected: Bad args format.`);
                 return;
             }
         }
 
-        let parsedEnv = {};
+        let queryEnv = {}; // Environment from query string
         if (typeof envString === 'string') {
             try {
-                parsedEnv = JSON.parse(envString);
-                if (typeof parsedEnv !== 'object' || parsedEnv === null) throw new Error('Env must be a JSON object.');
+                queryEnv = JSON.parse(envString);
+                if (typeof queryEnv !== 'object' || queryEnv === null) throw new Error('Env must be a JSON object.');
             } catch (e) {
-                this.sendSseMessage(newClient, 'connectionStatus', { status: 'error', error: `Invalid "env" query parameter (must be JSON object): ${e.message}` });
-                this.cleanupClient(newClient);
+                 const errMsg = e instanceof Error ? e.message : String(e);
+                this.sendSseMessage(newClient, 'connectionStatus', { status: 'error', error: `Invalid "env" query parameter (must be JSON object): ${errMsg}` });
+                this.cleanupClient(clientId);
                 console.error(`[MCP Proxy] Client ${clientId} disconnected: Bad env format.`);
                 return;
             }
         }
 
-        console.log(`[MCP Proxy] Client ${clientId} Config: transport=${transport}, command=${command}, args=${JSON.stringify(parsedArgs)}, env=${JSON.stringify(parsedEnv)}`);
-        this.spawnMcpProcess(newClient, command, parsedArgs, transport, parsedEnv);
+        console.log(`[MCP Proxy] Client ${clientId} Config: transport=${transport}, command=${command}, args=${JSON.stringify(origArgs)}, env=${JSON.stringify(queryEnv)}`);
 
-        req.on('close', () => {
-            console.log(`[MCP Proxy] Client ${clientId} disconnected (SSE connection closed).`);
-            this.cleanupClient(this.clients.get(clientId));
-        });
-    }
-
-    /**
-     * @param {SseClient} client
-     * @param {string} command
-     * @param {string[]} args
-     * @param {string | string[] | undefined} transport
-     * @param {Object} env
-     */
-    spawnMcpProcess(client, command, args, transport, env) {
-        const transportLower = typeof transport === 'string' ? transport.toLowerCase() : '';
-        if (transportLower !== 'stdio') {
-            const errorMsg = `Unsupported transport type: ${transport}. Only 'stdio' is currently supported.`;
-            console.error(`[MCP Proxy] ${errorMsg} for client ${client.id}`);
-            this.sendSseMessage(client, 'connectionStatus', { status: 'error', error: errorMsg });
-            this.cleanupClient(client);
-            return;
-        }
-
+        // --- Transport Creation and Proxying ---
         try {
-            console.log(`[MCP Proxy] Spawning process for client ${client.id}: ${command} ${args.join(' ')}`);
-            console.log(`[MCP Proxy] Environment variables: ${JSON.stringify(env)}`);
-            
-            // Create a new environment object with all variables
-            const processEnv = {
-                ...process.env,
-                ...env
+            const transportLower = typeof transport === 'string' ? transport.toLowerCase() : '';
+            if (transportLower !== 'stdio') {
+                throw new Error(`Unsupported transport type: ${transport}. Only 'stdio' is currently supported.`);
+            }
+
+            // Merge environments: process.env < defaultEnvironment < queryEnv
+            const finalEnv = { ...process.env, ...defaultEnvironment, ...queryEnv };
+
+            // Use findActualExecutable from spawn-rx
+            const { cmd, args } = findActualExecutable(command, origArgs);
+            console.log(`[MCP Proxy] Resolved command for client ${clientId}: ${cmd} ${args.join(' ')}`);
+
+            // Create StdioClientTransport instance
+            const mcpTransport = new StdioClientTransport({
+                command: cmd,
+                args,
+                env: finalEnv,
+                stderr: "pipe", // Pipe stderr to capture it
+            });
+
+            this.clientTransports.set(clientId, mcpTransport); // Store the transport
+            // newClient.mcpTransport = mcpTransport; // Update client object (though we mainly use clientTransports map)
+
+            // Handle stderr
+            if (mcpTransport.stderr) {
+                mcpTransport.stderr.on('data', (data) => {
+                    const message = data.toString();
+                    console.error(`[MCP Process STDERR Client ${clientId}] ${message}`);
+                    this.sendSseMessage(newClient, 'logMessage', { source: 'stderr', content: message });
+                });
+                mcpTransport.stderr.on('error', (err) => {
+                     console.error(`[MCP Process STDERR ERROR Client ${clientId}] ${err.message}`);
+                     this.sendSseMessage(newClient, 'logMessage', { source: 'stderr', content: `Stderr stream error: ${err.message}`});
+                });
+            } else {
+                 console.warn(`[MCP Proxy WARN] Stdio transport for ${clientId} has no stderr stream.`);
+            }
+
+            // Setup message proxying
+            mcpTransport.onmessage = (message) => {
+                // Forward messages from MCP server to SSE client
+                this.sendSseMessage(newClient, 'mcpMessage', message);
             };
 
-            // For npx, we need to ensure the environment variables are available to the spawned process
-            if (command === 'npx') {
-                // Pass environment variables directly to the spawned process
-                processEnv.NODE_ENV = processEnv.NODE_ENV || 'development';
-            }
+            mcpTransport.onerror = (error) => {
+                console.error(`[MCP Proxy] MCP Transport Error for client ${clientId}:`, error);
+                this.sendSseMessage(newClient, 'connectionStatus', { status: 'error', error: `MCP Transport error: ${error.message}` });
+                this.cleanupClient(clientId);
+            };
 
-            const mcpProcess = spawn(command, args, { 
-                stdio: ['pipe', 'pipe', 'pipe'],
-                env: processEnv,
-                shell: true // Keep shell for npx to work correctly
-            });
-            client.mcpProcess = mcpProcess;
-
-            this.sendSseMessage(client, 'connectionStatus', { status: 'connected' });
-            console.log(`[MCP Proxy] Process spawned for client ${client.id} (PID: ${mcpProcess.pid})`);
-
-            mcpProcess.stdout.on('data', (data) => {
-                const lines = data.toString().split(/\r?\n/);
-                lines.forEach((line) => {
-                    if (line.trim()) {
-                        console.log(`[MCP Process ${mcpProcess.pid} STDOUT] ${line}`);
-                        try {
-                            const jsonMessage = JSON.parse(line);
-                            this.sendSseMessage(client, 'mcpMessage', jsonMessage);
-                        } catch (e) {
-                            console.warn(`[MCP Proxy WARN] Non-JSON output from PID ${mcpProcess.pid}: ${line}`);
-                            this.sendSseMessage(client, 'logMessage', { source: 'stdout', content: line });
-                        }
-                    }
-                });
-            });
-
-            mcpProcess.stderr.on('data', (data) => {
-                const message = data.toString();
-                console.error(`[MCP Process ${mcpProcess.pid} STDERR] ${message}`);
-                this.sendSseMessage(client, 'logMessage', { source: 'stderr', content: message });
-            });
-
-            mcpProcess.on('error', (err) => {
-                console.error(`[MCP Process ${mcpProcess.pid || 'unknown'} ERROR] Failed to start or runtime error:`, err);
-                if (this.clients.has(client.id)) {
-                    this.sendSseMessage(client, 'connectionStatus', { status: 'error', error: `Process error: ${err.message}` });
+            mcpTransport.onclose = () => {
+                console.log(`[MCP Proxy] MCP Transport Closed for client ${clientId}.`);
+                // Don't send disconnected here, wait for SSE close or explicit disconnect command?
+                // Or maybe send disconnected if the client is still connected?
+                if (this.clients.has(clientId)) {
+                     this.sendSseMessage(newClient, 'connectionStatus', { status: 'disconnected', code: mcpTransport.exitCode ?? 'N/A' });
                 }
-                this.cleanupClient(client);
-            });
+                this.cleanupClient(clientId); // Ensure full cleanup
+            };
 
-            mcpProcess.on('close', (code) => {
-                console.log(`[MCP Process ${mcpProcess.pid || 'unknown'} CLOSE] Exited with code ${code}`);
-                if (this.clients.has(client.id)) {
-                    this.sendSseMessage(client, 'connectionStatus', { status: 'disconnected', code: code });
-                }
-                this.cleanupClient(client);
-            });
+            // Start the transport (spawns the process)
+            await mcpTransport.start();
+            console.log(`[MCP Proxy] Started StdioClientTransport for client ${clientId}.`);
+            // Send connected status *after* transport starts successfully
+             this.sendSseMessage(newClient, 'connectionStatus', { status: 'connected' });
 
         } catch (error) {
-            console.error(`[MCP Proxy] Failed to spawn process for client ${client.id}:`, error);
-            if (this.clients.has(client.id)) {
-                this.sendSseMessage(client, 'connectionStatus', { status: 'error', error: `Failed to spawn process: ${error.message}` });
-            }
-            this.cleanupClient(client);
+            const errorMsg = error instanceof Error ? error.message : String(error);
+            console.error(`[MCP Proxy] Failed to setup MCP transport for client ${clientId}:`, errorMsg);
+            this.sendSseMessage(newClient, 'connectionStatus', { status: 'error', error: `Failed to start MCP process: ${errorMsg}` });
+            this.cleanupClient(clientId);
         }
     }
 
@@ -232,102 +249,102 @@ class McpProxyHandler {
     handlePostRequest(req, res) {
         let body = '';
         req.on('data', chunk => { body += chunk.toString(); });
-        req.on('end', () => {
+        req.on('end', async () => { // Make async
             console.log(`[MCP Proxy] Received POST data: ${body}`);
-            /** @type {PostRequestData} */
-            let requestData;
+            /** @type {JsonRpcRequest} */
+            let jsonRpcRequest;
             try {
-                requestData = JSON.parse(body);
-                if (typeof requestData !== 'object' || requestData === null || typeof requestData.type !== 'string') {
-                    throw new Error('Invalid request format. Missing or invalid "type".');
+                const requestData = JSON.parse(body);
+
+                // Check if it's already a JSON-RPC request
+                if (typeof requestData === 'object' && requestData !== null && 'jsonrpc' in requestData && 'method' in requestData) {
+                    jsonRpcRequest = requestData;
+                    jsonRpcRequest.id = requestData.id || `req-${Date.now()}`; // Ensure ID exists
+                }
+                // Otherwise, assume legacy format and convert
+                else if (typeof requestData === 'object' && requestData !== null && typeof requestData.type === 'string') {
+                    jsonRpcRequest = {
+                        jsonrpc: "2.0",
+                        id: requestData.id || `req-${Date.now()}`,
+                        method: requestData.type,
+                        params: requestData.payload
+                    };
+                } else {
+                    throw new Error('Invalid request format. Must be JSON-RPC or {type, payload}.');
                 }
             } catch (e) {
-                console.error('[MCP Proxy] Invalid POST JSON or format:', e.message);
+                const errMsg = e instanceof Error ? e.message : String(e);
+                console.error('[MCP Proxy] Invalid POST JSON or format:', errMsg);
                 res.writeHead(400, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ status: 'error', message: `Invalid request body: ${e.message}` }));
+                res.end(JSON.stringify({ status: 'error', message: `Invalid request body: ${errMsg}` }));
                 return;
             }
 
+            // --- Find Target Client and Transport ---
             /** @type {SseClient | undefined} */
             let targetClient;
+            /** @type {McpTransport | undefined} */
+            let targetTransport;
+
+            // Simplified logic: Assume only one client connection is managed by this proxy instance for now.
+            // A more robust implementation might use a session ID or other identifier from the POST request.
             if (this.clients.size === 1) {
                 targetClient = this.clients.values().next().value;
-                if (!targetClient) {
-                     console.error(`[MCP Proxy] POST failed: Client map size is 1 but failed to retrieve client.`);
-                     res.writeHead(500, { 'Content-Type': 'application/json' });
-                     res.end(JSON.stringify({ status: 'error', message: 'Internal server error: Failed to find client.' }));
-                     return;
+                if (targetClient) {
+                     targetTransport = this.clientTransports.get(targetClient.id);
                 }
+                 if (!targetClient || !targetTransport) {
+                     console.error(`[MCP Proxy] POST failed: Client map size is 1 but failed to retrieve client or transport.`);
+                     res.writeHead(500, { 'Content-Type': 'application/json' });
+                     res.end(JSON.stringify({ status: 'error', message: 'Internal server error: Failed to find active connection.' }));
+                     return;
+                 }
             } else {
-                const status = this.clients.size === 0 ? 409 : 501;
+                const status = this.clients.size === 0 ? 409 : 501; // 409 Conflict (no connection), 501 Not Implemented (multiple clients)
                 const message = this.clients.size === 0
                     ? 'No active MCP connection.'
-                    : 'Multiple clients active; cannot route command.';
-                console.error(`[MCP Proxy] POST failed: ${message}`);
+                    : 'Multiple clients active; cannot route command. Request routing not implemented.';
+                console.error(`[MCP Proxy] POST failed: ${message} (${this.clients.size} clients)`);
                 res.writeHead(status, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ status: 'error', message }));
                 return;
             }
 
-            if (!targetClient.mcpProcess || targetClient.mcpProcess.killed || !targetClient.mcpProcess.stdin.writable) {
-                const reason = !targetClient.mcpProcess ? "No MCP process object" :
-                               targetClient.mcpProcess.killed ? "MCP process killed" :
-                               !targetClient.mcpProcess.stdin.writable ? "MCP process stdin not writable" :
-                               "Unknown reason";
-                console.error(`[MCP Proxy] Cannot handle POST for client ${targetClient.id}: MCP process unavailable (${reason}).`);
-                res.writeHead(409, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ status: 'error', message: `MCP process is not running or connection lost (${reason}).` }));
-                return;
+            // --- Send Request to MCP Server via Transport ---
+            if (!targetTransport) { // Should be caught above, but double check
+                 console.error(`[MCP Proxy] Cannot handle POST for client ${targetClient.id}: Transport unavailable.`);
+                 res.writeHead(409, { 'Content-Type': 'application/json' }); // 409 Conflict
+                 res.end(JSON.stringify({ status: 'error', message: `MCP transport is not available for this connection.` }));
+                 return;
             }
 
-            const jsonRpcRequest = {
-                jsonrpc: "2.0",
-                id: requestData.id || `req-${Date.now()}`,
-                method: requestData.type,
-                params: requestData.payload
-            };
-            const messageString = JSON.stringify(jsonRpcRequest) + '\n';
+            try {
+                 console.log(`[MCP Proxy StdioClientTransport] > Client ${targetClient.id}: ${JSON.stringify(jsonRpcRequest)}`);
+                 // Use the transport's send method
+                 await targetTransport.send(jsonRpcRequest);
 
-            console.log(`[MCP Proxy STDIN] > PID ${targetClient.mcpProcess.pid}: ${messageString.trim()}`);
-            if (targetClient.mcpProcess) {
-                targetClient.mcpProcess.stdin.write(messageString, (err) => {
-                    if (err) {
-                        console.error(`[MCP Proxy] Error writing to MCP stdin (PID: ${targetClient?.mcpProcess?.pid}):`, err);
-                         if (targetClient && this.clients.has(targetClient.id)) {
-                             this.sendSseMessage(targetClient, 'commandError', { type: requestData.type, error: `Failed to write to process stdin: ${err.message}` });
-                         }
-                        try {
-                            if (!res.headersSent) {
-                                res.writeHead(500, { 'Content-Type': 'application/json' });
-                            }
-                            if (res.writable) {
-                                 res.end(JSON.stringify({ status: 'error', message: `Failed to send command to MCP process: ${err.message}` }));
-                            } else {
-                                console.warn(`[MCP Proxy WARN] Cannot send POST error response; stream not writable.`);
-                            }
-                        } catch (e) { console.error("[MCP Proxy] Error sending POST error response:", e); }
-                    } else {
-                        console.log(`[MCP Proxy] Successfully sent command '${requestData.type}' to MCP process (PID: ${targetClient?.mcpProcess?.pid})`);
-                         try {
-                             if (!res.headersSent) {
-                                 res.writeHead(200, { 'Content-Type': 'application/json' });
-                             }
-                              if (res.writable) {
-                                 res.end(JSON.stringify({ status: 'success', message: 'Command sent to MCP process.' }));
-                             } else {
-                                 console.warn(`[MCP Proxy WARN] Cannot send POST success response; stream not writable.`);
-                             }
-                         } catch (e) { console.error("[MCP Proxy] Error sending POST success response:", e); }
-                    }
-                });
-            } else {
-                 console.error(`[MCP Proxy] Cannot handle POST for client ${targetClient.id}: MCP process is null unexpectedly.`);
-                 if (!res.headersSent) {
-                      res.writeHead(500, { 'Content-Type': 'application/json' });
+                 console.log(`[MCP Proxy] Successfully sent command '${jsonRpcRequest.method}' via transport for client ${targetClient.id}`);
+                 if (!res.headersSent && res.writable) {
+                     res.writeHead(200, { 'Content-Type': 'application/json' });
+                     res.end(JSON.stringify({ status: 'success', message: 'Command sent to MCP process.' }));
+                 } else if (!res.writable) {
+                    console.warn(`[MCP Proxy WARN] Cannot send POST success response; stream not writable.`);
                  }
-                 if (res.writable) {
-                      res.end(JSON.stringify({ status: 'error', message: 'Internal server error: MCP process reference lost.' }));
+
+            } catch (err) {
+                const errorMsg = err instanceof Error ? err.message : String(err);
+                 console.error(`[MCP Proxy] Error sending command via transport for client ${targetClient.id}:`, errorMsg);
+                  // Send error back via SSE if possible
+                 if (this.clients.has(targetClient.id)) {
+                     this.sendSseMessage(targetClient, 'commandError', { type: jsonRpcRequest.method, error: `Failed to send command to process: ${errorMsg}` });
                  }
+                  // Send error back via POST response
+                  if (!res.headersSent && res.writable) {
+                     res.writeHead(500, { 'Content-Type': 'application/json' });
+                     res.end(JSON.stringify({ status: 'error', message: `Failed to send command to MCP process: ${errorMsg}` }));
+                  } else if (!res.writable) {
+                     console.warn(`[MCP Proxy WARN] Cannot send POST error response; stream not writable.`);
+                  }
             }
         });
     }
@@ -347,9 +364,17 @@ class McpProxyHandler {
             console.log(`[MCP Proxy] Handling ${req.method} for ${req.url}`);
 
             if (req.method === 'GET') {
-                this.handleGetRequest(req, res);
+                this.handleGetRequest(req, res).catch(err => { // Add catch block
+                   console.error("[MCP Proxy] Unhandled error in handleGetRequest:", err);
+                   if (!res.headersSent && res.writable) {
+                       res.writeHead(500);
+                       res.end("Internal Server Error");
+                   } else if (!res.writable) {
+                       console.error("[MCP Proxy] Cannot send error response for GET request; stream not writable.");
+                   }
+                });
             } else if (req.method === 'POST') {
-                this.handlePostRequest(req, res);
+                this.handlePostRequest(req, res); // Already has internal error handling
             } else {
                 console.log(`[MCP Proxy] Unsupported method: ${req.method}`);
                 res.writeHead(405); // Method Not Allowed
@@ -360,4 +385,5 @@ class McpProxyHandler {
 }
 
 const proxyInstance = new McpProxyHandler();
-module.exports = { mcpProxyHandler: proxyInstance.getMiddleware() }; 
+// Export the middleware function directly
+module.exports = proxyInstance.getMiddleware(); 

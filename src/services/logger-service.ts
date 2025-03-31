@@ -118,8 +118,8 @@ export class Logger {
 
 // Example of how it might be registered and used (assuming an ApplicationServiceProvider exists)
 /*
-import { ApplicationServiceProvider } from './application-service-provider'; // Adjust path as needed
-import { Logger, LogLevel } from './logger-service';
+import { ApplicationServiceProvider } from './application-service-provider.js'; // Adjust path as needed
+import { Logger, LogLevel } from './logger-service.js';
 
 // --- Somewhere during application initialization ---
 const logger = new Logger();

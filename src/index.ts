@@ -1,6 +1,6 @@
-import './views/theme-toggle';
-import { ApplicationServiceProvider } from './services/application-service-provider';
-import { Logger, LogLevel } from './services/logger-service';
+import './views/theme-toggle.js';
+import { ApplicationServiceProvider } from './services/application-service-provider.js';
+import { Logger, LogLevel } from './services/logger-service.js';
 
 const message: string = "Hello World";
 

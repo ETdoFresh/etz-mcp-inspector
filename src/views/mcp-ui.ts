@@ -1,8 +1,8 @@
 // src/mcp-ui.ts
-import { UIToolDefinition } from '../models/tool-definition.model';
-import { McpUIActions } from '../controllers/mcp.controller';
-import { ApplicationServiceProvider } from '../services/application-service-provider';
-import { Logger } from '../services/logger-service';
+import { UIToolDefinition } from '../models/tool-definition.model.js';
+import { McpUIActions } from '../controllers/mcp.controller.js';
+import { ApplicationServiceProvider } from '../services/application-service-provider.js';
+import { Logger } from '../services/logger-service.js';
 
 // Define the server config structure locally (or import if moved to models)
 export interface McpServerConfig {

@@ -1,10 +1,10 @@
 // src/controllers/mcp.controller.ts
-import { McpUIView, McpServerConfig } from '../views/mcp-ui';
-import { McpCommunicationService, McpCommunicationCallbacks, McpConnectionConfig } from '../services/mcp-communication';
-import { McpMessagePayload } from '../models/mcp-message-payload.model'; // Needed for onMcpMessage
-import { UIToolDefinition } from '../models/tool-definition.model'; // Needed for renderToolList
-import { ApplicationServiceProvider } from '../services/application-service-provider'; // Added
-import { Logger } from '../services/logger-service'; // Added
+import { McpUIView, McpServerConfig } from '../views/mcp-ui.js';
+import { McpCommunicationService, McpCommunicationCallbacks, McpConnectionConfig } from '../services/mcp-communication.js';
+import { McpMessagePayload } from '../models/mcp-message-payload.model.js'; // Needed for onMcpMessage
+import { UIToolDefinition } from '../models/tool-definition.model.js'; // Needed for renderToolList
+import { ApplicationServiceProvider } from '../services/application-service-provider.js'; // Added
+import { Logger } from '../services/logger-service.js'; // Added
 
 // Updated UIActions interface to include server management
 export interface McpUIActions {
@@ -29,8 +29,9 @@ export class McpController implements McpUIActions, McpCommunicationCallbacks {
     private view: McpUIView;
     private communicationService: McpCommunicationService;
     private logger: Logger | undefined = ApplicationServiceProvider.getService(Logger); // Added
-    // State to track the type of request pending a response
     private pendingRequestType: 'listTools' | 'executeTool' | null = null;
+    private isServerInitialized: boolean = false;
+    private pendingInitializationRequests: Array<() => void> = [];
     
     // --- State Management ---
     private servers: McpServerConfig[] = []; // List of saved servers
@@ -209,19 +210,27 @@ export class McpController implements McpUIActions, McpCommunicationCallbacks {
 
     onListTools(): void {
         this.logger?.LogInfo((a, b) => a(b), "onListTools triggered", "Controller", "Action", "UIEvent");
-        if (!this.isConnectedToServer) { // Check internal connection state
+        if (!this.isConnectedToServer) {
             this.view.showToolListError("Cannot list tools: Not connected.");
             return;
         }
         this.view.showFetchingTools();
-        this.pendingRequestType = 'listTools';
-        this.communicationService.sendRequestToBackend('tools/list', {});
-        this.logger?.LogDebug((a, b) => a(b), `Sent tools/list request`, "Controller", "Action", "MCPRequest");
+        
+        this.sendRequestWhenReady(() => {
+            this.pendingRequestType = 'listTools';
+            this.communicationService.sendRequest('tools/list', {
+                jsonrpc: "2.0",
+                method: "tools/list",
+                params: {},
+                id: `list-${Date.now()}`
+            });
+            this.logger?.LogDebug((a, b) => a(b), `Sent tools/list request`, "Controller", "Action", "MCPRequest");
+        });
     }
 
     onExecuteTool(params: { [key: string]: any }): void {
         this.logger?.LogInfo((a, b) => a(b), `onExecuteTool triggered`, "Controller", "Action", "UIEvent", "ToolExecution");
-        if (!this.isConnectedToServer) { // Check internal connection state
+        if (!this.isConnectedToServer) {
             this.view.displayToolResult({ status: 'error', message: "Cannot execute tool: Not connected." });
             return;
         }
@@ -233,12 +242,20 @@ export class McpController implements McpUIActions, McpCommunicationCallbacks {
         }
 
         this.view.showExecutingTool();
-        this.pendingRequestType = 'executeTool';
-        this.communicationService.sendRequestToBackend('tools/call', {
-            name: selectedToolName,
-            arguments: params
+        
+        this.sendRequestWhenReady(() => {
+            this.pendingRequestType = 'executeTool';
+            this.communicationService.sendRequest('tools/call', {
+                jsonrpc: "2.0",
+                method: "tools/call",
+                params: {
+                    name: selectedToolName,
+                    arguments: params
+                },
+                id: `exec-${Date.now()}`
+            });
+            this.logger?.LogDebug((a, b) => a(b), `Sent tools/call request for ${selectedToolName}`, "Controller", "Action", "MCPRequest", "ToolExecution");
         });
-        this.logger?.LogDebug((a, b) => a(b), `Sent tools/call request for ${selectedToolName}`, "Controller", "Action", "MCPRequest", "ToolExecution");
     }
 
     onToolSelected(toolIndex: number): void {
@@ -304,6 +321,8 @@ export class McpController implements McpUIActions, McpCommunicationCallbacks {
 
     onConnected(): void {
         this.isConnectedToServer = true;
+        this.isServerInitialized = false; // Reset initialization state on new connection
+        this.pendingInitializationRequests = []; // Clear pending requests
         if (this.currentSelectedServerId) {
             this.view.updateServerConnectionState(this.currentSelectedServerId, 'connected');
             this.view.showConnected(true);
@@ -313,6 +332,8 @@ export class McpController implements McpUIActions, McpCommunicationCallbacks {
 
     onDisconnected(code?: number | string): void {
         this.isConnectedToServer = false;
+        this.isServerInitialized = false;
+        this.pendingInitializationRequests = [];
         if (this.currentSelectedServerId) {
             this.view.updateServerConnectionState(this.currentSelectedServerId, 'disconnected');
             this.view.showConnected(false);
@@ -332,47 +353,100 @@ export class McpController implements McpUIActions, McpCommunicationCallbacks {
     }
 
     onMcpMessage(payload: McpMessagePayload): void {
-        this.logger?.LogDebug((a, b) => a(b), `Received MCP message: ${JSON.stringify(payload)}`, "Controller", "Callback", "MCPMessage");
-
-        // Check if it's a response (has an ID)
-        if (payload.id) {
-            switch (this.pendingRequestType) {
-                case 'listTools':
-                    this.logger?.LogDebug((a, b) => a(b), `Handling response for pending request: ${this.pendingRequestType} (ID: ${payload.id})`, "Controller", "Callback", "MCPMessage", "ResponseHandling");
-                    if (payload.result?.tools && Array.isArray(payload.result.tools)) {
-                        this.view.renderToolList(payload.result.tools as UIToolDefinition[]);
-                    } else if (payload.error) {
-                        this.view.showToolListError(`Error listing tools: ${payload.error.message} (Code: ${payload.error.code})`);
-                    } else {
-                        this.view.showToolListError('Received invalid response format for listTools.');
-                    }
-                    this.pendingRequestType = null;
-                    break;
-
-                case 'executeTool':
-                    this.logger?.LogDebug((a, b) => a(b), `Handling response for pending request: ${this.pendingRequestType} (ID: ${payload.id})`, "Controller", "Callback", "MCPMessage", "ResponseHandling");
-                     if (payload.result !== undefined) {
-                         this.view.displayToolResult({ status: 'success', data: payload.result });
-                     } else if (payload.error) {
-                         this.view.displayToolResult({ status: 'error', message: payload.error.message, details: payload.error.data });
-                     } else {
-                         this.view.displayToolResult({ status: 'error', message: 'Received invalid response format for executeTool.' });
-                     }
-                    this.pendingRequestType = null;
-                    break;
-
-                default:
-                    this.logger?.LogWarning((a, b) => a(b), `Received response with ID ${payload.id} but no matching pending request type (${this.pendingRequestType})`, "Controller", "Callback", "MCPMessage", "ResponseHandling", "Unexpected");
-                    break;
+        this.logger?.LogDebug((a, b) => a(b), `Received MCP message: ${JSON.stringify(payload)}`, "Controller", "MCPMessage");
+        
+        // Check for initialization message using the same logic as mcp-communication.ts
+        if (
+            // JSON-RPC 2.0 format
+            (typeof payload === 'object' && 'jsonrpc' in payload && 
+                (('result' in payload && payload.result && typeof payload.result === 'object' && 'capabilities' in payload.result) ||
+                 ('method' in payload && (payload.method === 'initialize' || payload.method === 'initialized')))
+            ) ||
+            // Legacy formats
+            (typeof payload === 'object' && 'type' in payload && payload.type === 'initialized') ||
+            (typeof payload === 'object' && 'result' in payload && payload.result === 'initialized')
+        ) {
+            this.logger?.LogInfo((a, b) => a(b), `Server initialization complete: ${JSON.stringify(payload)}`, "Controller", "MCPMessage", "Initialization");
+            this.isServerInitialized = true;
+            // Process any pending requests
+            while (this.pendingInitializationRequests.length > 0) {
+                const request = this.pendingInitializationRequests.shift();
+                if (request) {
+                    request();
+                }
             }
-        } else if (payload.method) { // Handle Notifications
-             if (payload.method === 'logMessage' && payload.params?.message) {
-                 const level = payload.params.level || 'info';
-                 this.logger?.LogInfo((a, b) => a(b), `[MCP Log/${level.toUpperCase()}]: ${payload.params.message}`, "Controller", "Callback", "MCPMessage", "Notification", "MCPLog");
-             } else {
-                  this.logger?.LogWarning((a, b) => a(b), `Received unhandled MCP notification: ${payload.method}`, "Controller", "Callback", "MCPMessage", "Notification", "Unexpected");
-             }
+            return;
         }
+
+        // Log all messages when waiting for initialization
+        if (!this.isServerInitialized) {
+            this.logger?.LogDebug((a, b) => a(b), `Received message while waiting for initialization: ${JSON.stringify(payload)}`, "Controller", "MCPMessage", "Initialization");
+        }
+
+        // Handle different message types based on pending request
+        switch (this.pendingRequestType) {
+            case 'listTools':
+                this.logger?.LogDebug((a, b) => a(b), `Processing listTools response`, "Controller", "MCPMessage", "Tools");
+                if ('result' in payload && payload.result && typeof payload.result === 'object') {
+                    // Handle JSON-RPC 2.0 response format
+                    if ('tools' in payload.result && Array.isArray(payload.result.tools)) {
+                        this.logger?.LogDebug((a, b) => a(b), `Found tools array in result.tools: ${JSON.stringify(payload.result.tools)}`, "Controller", "MCPMessage", "Tools");
+                        this.view.renderToolList(payload.result.tools as UIToolDefinition[]);
+                    } else if (Array.isArray(payload.result)) {
+                        // Handle direct array in result
+                        this.logger?.LogDebug((a, b) => a(b), `Found tools array in result: ${JSON.stringify(payload.result)}`, "Controller", "MCPMessage", "Tools");
+                        this.view.renderToolList(payload.result as UIToolDefinition[]);
+                    } else {
+                        this.logger?.LogError((a, b) => a(b), `Invalid tool list format in result: ${JSON.stringify(payload.result)}`, "Controller", "MCPMessage", "Tools", "Error");
+                        this.view.showToolListError("Invalid tool list format received.");
+                    }
+                } else if (Array.isArray(payload)) {
+                    // Handle direct array payload
+                    this.logger?.LogDebug((a, b) => a(b), `Payload is direct array: ${JSON.stringify(payload)}`, "Controller", "MCPMessage", "Tools");
+                    this.view.renderToolList(payload as UIToolDefinition[]);
+                } else {
+                    this.logger?.LogError((a, b) => a(b), `Invalid tool list format received: ${JSON.stringify(payload)}`, "Controller", "MCPMessage", "Tools", "Error");
+                    this.view.showToolListError("Invalid tool list format received.");
+                }
+                break;
+            case 'executeTool':
+                if ('result' in payload && payload.result !== undefined) {
+                    this.view.displayToolResult({ status: 'success', data: payload.result });
+                } else if ('error' in payload && payload.error !== undefined) {
+                    const error = payload.error;
+                    this.view.displayToolResult({ 
+                        status: 'error', 
+                        message: typeof error === 'string' ? error : error.message || 'Unknown error',
+                        details: typeof error === 'object' && error !== null ? error.data : undefined
+                    });
+                } else {
+                    this.view.displayToolResult({ status: 'error', message: 'Invalid response format received' });
+                }
+                break;
+            default:
+                this.logger?.LogWarning((a, b) => a(b), `Received message with no pending request: ${JSON.stringify(payload)}`, "Controller", "MCPMessage", "Unexpected");
+        }
+
+        // Reset pending request type after handling
+        this.pendingRequestType = null;
+    }
+
+    onCommandError(type: string, error: string): void {
+        this.logger?.LogError((a, b) => a(b), `Command error for type ${type}: ${error}`, "Controller", "MCPMessage", "Error");
+        
+        switch (type) {
+            case 'tools/list':
+                this.view.showToolListError(`Failed to list tools: ${error}`);
+                break;
+            case 'tools/call':
+                this.view.displayToolResult({ status: 'error', message: `Tool execution failed: ${error}` });
+                break;
+            default:
+                this.view.showError(`Command error: ${error}`, false);
+        }
+        
+        // Reset pending request type after error
+        this.pendingRequestType = null;
     }
 
     // Log messages from the communication service itself (e.g., transport specific logs)
@@ -437,44 +511,18 @@ export class McpController implements McpUIActions, McpCommunicationCallbacks {
     }
 
     private disconnectCurrent(): void {
-        if (this.communicationService.isConnected) {
-            this.logger?.LogInfo((a, b) => a(b), "Disconnecting from current server...", "Controller", "Connection");
+        if (this.communicationService) {
             this.communicationService.disconnect();
             this.isConnectedToServer = false;
-            // View updates are handled in onDisconnected callback
         }
     }
 
-    /* // Old save/load - replaced by server list management
-    private saveConfig(config?: McpConnectionConfig): void {
-        try {
-            const configToSave = config || {
-                transport: this.view.getTransport(),
-                command: this.view.getCommand(),
-                args: this.view.getAllArguments()
-            };
-            localStorage.setItem(this.localStorageKey, JSON.stringify(configToSave));
-             this.logger?.LogDebug((a, b) => a(b), "Configuration saved.", "Controller", "Persistence");
-        } catch (error: any) {
-             this.logger?.LogError((a, b) => a(b), `Failed to save config: ${error.message}`, "Controller", "Persistence", "Error");
+    private sendRequestWhenReady(request: () => void): void {
+        if (this.isServerInitialized) {
+            request();
+        } else {
+            this.logger?.LogDebug((a, b) => a(b), "Queueing request until server is initialized", "Controller", "Request");
+            this.pendingInitializationRequests.push(request);
         }
     }
-
-    private loadAndApplyConfig(): void {
-        try {
-            const savedConfig = localStorage.getItem(this.localStorageKey);
-            if (savedConfig) {
-                const config = JSON.parse(savedConfig);
-                this.view.setTransport(config.transport || 'STDIO');
-                this.view.setCommand(config.command || '');
-                this.view.renderArgumentInputs(config.args || []);
-                 this.logger?.LogInfo((a, b) => a(b), "Configuration loaded.", "Controller", "Persistence");
-            } else {
-                 this.logger?.LogInfo((a, b) => a(b), "No saved configuration found.", "Controller", "Persistence");
-            }
-        } catch (error: any) {
-             this.logger?.LogError((a, b) => a(b), `Failed to load config: ${error.message}`, "Controller", "Persistence", "Error");
-        }
-    }
-    */
 } 

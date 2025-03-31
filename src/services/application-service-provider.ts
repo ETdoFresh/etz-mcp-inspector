@@ -1,5 +1,5 @@
 // src/services/application-service-provider.ts
-import { Logger, LogLevel } from './logger-service'; // Import Logger for potential default registration or type usage
+import { Logger, LogLevel } from './logger-service.js'; // Import Logger for potential default registration or type usage
 
 // Define a type for service constructors (classes)
 type ServiceIdentifier<T> = new (...args: any[]) => T;
@@ -88,8 +88,8 @@ export class ApplicationServiceProvider {
 
 // --- Example Initialization (would happen in your main application entry point) ---
 /*
-import { Logger, LogLevel } from './logger-service';
-import { ApplicationServiceProvider } from './application-service-provider';
+import { Logger, LogLevel } from './logger-service.js';
+import { ApplicationServiceProvider } from './application-service-provider.js';
 
 // 1. Create service instances
 const loggerInstance = new Logger();
