@@ -26,12 +26,14 @@ export class McpCommunicationService {
     private isInitialized: boolean = false;
     private pendingRequests: { type: string; payload: any; id?: string | number }[] = [];
     private logger: Logger | undefined = ApplicationServiceProvider.getService(Logger);
+    private clientId: string | null = null;
 
     public connect(config: McpConnectionConfig, callbacks: McpCommunicationCallbacks): void {
         this.callbacks = callbacks;
         this.isConnected = false;
         this.isInitialized = false;
         this.pendingRequests = [];
+        this.clientId = null;
 
         // Build the SSE URL with query parameters
         const params = new URLSearchParams({
@@ -52,18 +54,21 @@ export class McpCommunicationService {
             this.isConnected = true;
             this.logger?.LogInfo((a, b) => a(b), "isConnectedState set to: true", "Service", "Comm", "SSE", "State");
             
-            // Check if callbacks object exists
-            this.logger?.LogInfo((a, b) => a(b), "Checking callbacks object: " + (this.callbacks ? "Exists" : "Missing"), "Service", "Comm", "SSE", "CallbackCheck");
+            this.isInitialized = true;
+            this.logger?.LogInfo((a, b) => a(b), "isInitialized set to: true (onopen)", "Service", "Comm", "SSE", "State");
+            this.processPendingRequests();
+            
+            // Check callbacks exist before calling
+            this.logger?.LogInfo((a, b) => a(b), "Checking callbacks object: " + (this.callbacks ? "Exists" : "Does not exist"), "Service", "Comm", "SSE", "CallbackCheck");
             if (this.callbacks) {
-                // Check if onConnected is a function
                 this.logger?.LogInfo((a, b) => a(b), "Checking callbacks.onConnected function: " + (typeof this.callbacks.onConnected === 'function' ? "Is a function" : "Not a function"), "Service", "Comm", "SSE", "CallbackCheck");
                 if (typeof this.callbacks.onConnected === 'function') {
                     this.logger?.LogInfo((a, b) => a(b), "Attempting to call callbacks.onConnected()...", "Service", "Comm", "SSE", "Callback");
                     try {
                         this.callbacks.onConnected();
                         this.logger?.LogInfo((a, b) => a(b), "Successfully called callbacks.onConnected().", "Service", "Comm", "SSE", "Callback");
-                    } catch (error) {
-                        this.logger?.LogError((a, b) => a(b), `Error in onConnected callback: ${error}`, "Service", "Comm", "SSE", "Callback", "Error");
+                    } catch (error: any) {
+                        this.logger?.LogError((a, b) => a(b), `Error in callbacks.onConnected(): ${error.message || error}`, "Service", "Comm", "SSE", "Callback", "Error");
                     }
                 }
             }
@@ -74,8 +79,12 @@ export class McpCommunicationService {
                 const message = JSON.parse(event.data);
                 this.logger?.LogInfo((a, b) => a(b), `SSE message received: ${event.data}`, "Service", "Comm", "SSE", "Event", "Message");
 
+                if (message.type === 'clientIdAssigned' && message.payload?.clientId) {
+                    this.clientId = message.payload.clientId;
+                    this.logger?.LogInfo((a, b) => a(b), `Client ID assigned by server: ${this.clientId}`, "Service", "Comm", "SSE", "Message", "ClientId");
+                }
                 // Handle connection status updates
-                if (message.type === 'connectionStatus') {
+                else if (message.type === 'connectionStatus') {
                     this.logger?.LogInfo((a, b) => a(b), `Connection status update from proxy: ${JSON.stringify(message.payload)}`, "Service", "Comm", "SSE", "Message", "StatusUpdate");
                     
                     if (message.payload.status === 'connected') {
@@ -173,9 +182,25 @@ export class McpCommunicationService {
     private sendRequestToBackend(type: string, payload: any, id?: string | number): void {
         // For JSON-RPC requests, send the payload directly
         const isJsonRpc = payload && typeof payload === 'object' && 'jsonrpc' in payload;
-        const requestBody = isJsonRpc ? payload : { type, payload, id };
+        // The backend expects the raw JSON-RPC message as the body
+        const requestBody = isJsonRpc ? payload : { jsonrpc: "2.0", method: type, params: payload, id: id || `req-${Date.now()}` };
 
-        fetch('/mcp-proxy', {
+        // Use the correct endpoint: /mcp-proxy/message
+        // Also include the clientId as a query parameter as expected by the server
+        const clientId = this.getClientIdFromTransport();
+        if (!clientId) {
+             this.logger?.LogError((a, b) => a(b), `Cannot send request - Client ID not yet received from server.`, "Service", "Comm", "HTTP", "RequestError");
+            if (this.callbacks) {
+                this.callbacks.onCommandError(type, "Cannot send request: Client ID not yet assigned by proxy.");
+            }
+            return;
+        }
+        
+        const postUrl = `/mcp-proxy/message?clientId=${encodeURIComponent(clientId)}`;
+
+        this.logger?.LogInfo((a, b) => a(b), `POSTing to ${postUrl} with body: ${JSON.stringify(requestBody)}`, "Service", "Comm", "HTTP", "Request");
+
+        fetch(postUrl, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -184,15 +209,35 @@ export class McpCommunicationService {
         })
         .then(response => {
             if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
+                // Attempt to read error message from response body
+                response.text().then(text => {
+                     throw new Error(`HTTP error! status: ${response.status} - ${text || 'No response body'}`);
+                 }).catch(() => {
+                     // Fallback if reading text fails
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                 });
             }
-            this.logger?.LogInfo((a, b) => a(b), `'${type}' request sent successfully.`, "Service", "Comm", "HTTP", "RequestSuccess");
+             // Read response text even for success, might contain useful info
+            return response.text(); 
+        })
+        .then(responseText => {
+            this.logger?.LogInfo((a, b) => a(b), `Request to ${postUrl} successful. Response: ${responseText}`, "Service", "Comm", "HTTP", "RequestSuccess");
+            // Note: The actual MCP response comes via SSE, not this POST response.
+            // The POST response is just an acknowledgement.
         })
         .catch(error => {
-            this.logger?.LogError((a, b) => a(b), `Error sending '${type}' request: ${error}`, "Service", "Comm", "HTTP", "RequestError");
+            const errorMsg = error instanceof Error ? error.message : String(error);
+            this.logger?.LogError((a, b) => a(b), `Error sending request to ${postUrl}: ${errorMsg}`, "Service", "Comm", "HTTP", "RequestError");
             if (this.callbacks) {
-                this.callbacks.onCommandError(type, error.message);
+                // Pass the more detailed error message back
+                this.callbacks.onCommandError(type, errorMsg);
             }
         });
     }
+
+     // Helper function to get the stored clientId
+     private getClientIdFromTransport(): string | null {
+         // Return the stored clientId property
+         return this.clientId;
+     }
 } 

@@ -321,12 +321,18 @@ export class McpController implements McpUIActions, McpCommunicationCallbacks {
 
     onConnected(): void {
         this.isConnectedToServer = true;
-        this.isServerInitialized = false; // Reset initialization state on new connection
-        this.pendingInitializationRequests = []; // Clear pending requests
+        this.isServerInitialized = true;
+        this.pendingInitializationRequests = [];
         if (this.currentSelectedServerId) {
             this.view.updateServerConnectionState(this.currentSelectedServerId, 'connected');
             this.view.showConnected(true);
             this.logger?.LogInfo((a, b) => a(b), `Successfully connected to server: ${this.currentSelectedServerId}`, "Controller", "Connection");
+            while (this.pendingInitializationRequests.length > 0) {
+                const request = this.pendingInitializationRequests.shift();
+                if (request) {
+                    request();
+                }
+            }
         }
     }
 
@@ -353,6 +359,7 @@ export class McpController implements McpUIActions, McpCommunicationCallbacks {
     }
 
     onMcpMessage(payload: McpMessagePayload): void {
+        this.logger?.LogDebug((a, b) => a(b), `RAW MCP message received: ${JSON.stringify(payload)}`, "Controller", "MCPMessage", "Raw"); // Added log
         this.logger?.LogDebug((a, b) => a(b), `Received MCP message: ${JSON.stringify(payload)}`, "Controller", "MCPMessage");
         
         // Check for initialization message using the same logic as mcp-communication.ts

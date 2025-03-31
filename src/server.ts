@@ -127,6 +127,10 @@ class McpProxyHandler {
         const newClient: SseClient = { id: clientId, response: res };
         this.clients.set(clientId, newClient);
         console.log(`[MCP Proxy] Client ${clientId} connected via SSE.`);
+        
+        // ---> ADDED: Send the client its assigned ID <---
+        this.sendSseMessage(newClient, 'clientIdAssigned', { clientId: clientId });
+        // ---> END ADDED <---
 
         // --- Connection Logic (from original handleGetRequest) ---
         const parsedUrl = url.parse(req.url || '', true);
