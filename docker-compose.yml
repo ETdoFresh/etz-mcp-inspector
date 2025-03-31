@@ -1,0 +1,28 @@
+services:
+  web:
+    image: node:20-alpine
+    command: >
+      sh -c "
+      apk add --no-cache git &&
+      if [ ! -d \"/app\" ]; then
+        git clone https://github.com/ETdoFresh/etz-mcp-inspector.git /app
+      else
+        cd /app && git pull
+      fi &&
+      cd /app &&
+      npm install &&
+      npm run build &&
+      npm start"
+    restart: unless-stopped
+    networks:
+      - traefik-net
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.${APP_NAME}.rule=Host(`${DOMAIN}`)"
+      - "traefik.http.routers.${APP_NAME}.entrypoints=websecure"
+      - "traefik.http.routers.${APP_NAME}.tls.certresolver=letsencrypt"
+      - "traefik.http.services.${APP_NAME}.loadbalancer.server.port=8080"
+
+networks:
+  traefik-net:
+    external: true
