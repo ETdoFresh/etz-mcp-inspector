@@ -140,11 +140,17 @@ class McpProxyHandler {
             return;
         }
 
-        let origArgs: string[] = []; // Use shell-quote for args
+        let origArgs: string[] = []; // Arguments should be a JSON array string
         if (typeof argsString === 'string') {
             try {
-                const parsedShellArgs = shellParseArgs(argsString);
-                origArgs = parsedShellArgs.filter((arg): arg is string => typeof arg === 'string');
+                // Parse the JSON stringified array from the query parameter
+                origArgs = JSON.parse(argsString);
+                if (!Array.isArray(origArgs) || !origArgs.every(arg => typeof arg === 'string')) {
+                    throw new Error('Args query parameter must be a JSON array of strings.');
+                }
+                // No need for shellParseArgs here if client sends JSON array
+                // const parsedShellArgs = shellParseArgs(argsString);
+                // origArgs = parsedShellArgs.filter((arg): arg is string => typeof arg === 'string');
             } catch (e) {
                 // Type the caught error
                 const error = e instanceof Error ? e : new Error(String(e));
@@ -211,6 +217,21 @@ class McpProxyHandler {
             // Assuming findActualExecutable returns { cmd: string, args: string[] }
             const { cmd, args }: { cmd: string, args: string[] } = findActualExecutable(command, origArgs);
             console.log(`[MCP Proxy] Resolved command for client ${clientId}: ${cmd} ${args.join(' ')}`);
+
+            // ---> ADD DETAILED LOGGING HERE <---
+            console.log(`[MCP Proxy DEBUG] Launching command details for client ${clientId}:`);
+            console.log(`  -> CWD: ${process.cwd()}`);
+            console.log(`  -> Command: ${cmd}`);
+            console.log(`  -> Arguments: ${JSON.stringify(args)}`);
+            console.log(`  -> Environment (showing subset for brevity):`, {
+                 PATH: finalEnv.PATH,
+                 // Add any other potentially relevant env vars here if you suspect them
+                 // e.g., HOME: finalEnv.HOME, USERPROFILE: finalEnv.USERPROFILE
+                 MCP_SPECIFIC_VAR: finalEnv.MCP_SPECIFIC_VAR, // Replace with actual var name if relevant
+            });
+            // For more intense debugging, uncomment the next line, but BEWARE it can log sensitive info!
+            // console.log(`  -> Full Environment: ${JSON.stringify(finalEnv)}`);
+            // ---> END DETAILED LOGGING <---
 
             // Use StdioClientTransport from the main SDK import
             mcpTransportInstance = new StdioClientTransport({ // Use direct import

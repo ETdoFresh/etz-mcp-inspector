@@ -41,7 +41,7 @@ export class McpCommunicationService {
             env: JSON.stringify(config.env)
         });
 
-        const url = `/mcp-proxy?${params.toString()}`;
+        const url = `/mcp-proxy/sse?${params.toString()}`;
         this.logger?.LogInfo((a, b) => a(b), `SSE URL: ${url}`, "Service", "Comm", "Connect", "SSE", "URL");
 
         // Create new EventSource
