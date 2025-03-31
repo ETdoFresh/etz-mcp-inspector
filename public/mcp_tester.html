@@ -10,7 +10,7 @@
 <body>
     <button id="theme-toggle" title="Toggle light/dark mode"></button>
     <div class="mcp-tester-wrapper">
-        <h1>MCP Tester</h1>
+        <h1>MCP Tester <span id="build-timestamp" class="build-timestamp">20250331T065340</span></h1>
 
         <div class="column-layout">
 
@@ -144,6 +144,14 @@
 
         #add-env-btn {
             margin-bottom: 8px;
+        }
+
+        .build-timestamp {
+            font-size: 0.4em;
+            color: var(--text-color);
+            opacity: 0.7;
+            font-weight: normal;
+            margin-left: 10px;
         }
     </style>
 </body>

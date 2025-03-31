@@ -2,8 +2,12 @@ import './views/theme-toggle.js';
 import { McpController } from './controllers/mcp.controller.js';
 import { ApplicationServiceProvider } from './services/application-service-provider.js';
 import { Logger, LogLevel } from './services/logger-service.js';
+import { initializeBuildInfo } from './views/build-info.js';
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+    // Initialize build info first
+    await initializeBuildInfo();
+
     // --- Logger Initialization ---
     const loggerInstance = new Logger();
     // Set desired initial log level (e.g., Debug for development)

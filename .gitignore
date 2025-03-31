@@ -5,6 +5,7 @@ node_modules/*
 # Build output
 dist/
 dist/*
+public/build_time.txt
 
 # Logs
 npm-debug.log*
