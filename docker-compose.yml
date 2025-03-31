@@ -21,7 +21,7 @@ services:
       - "traefik.http.routers.${APP_NAME}.rule=Host(`${DOMAIN}`)"
       - "traefik.http.routers.${APP_NAME}.entrypoints=websecure"
       - "traefik.http.routers.${APP_NAME}.tls.certresolver=letsencrypt"
-      - "traefik.http.services.${APP_NAME}.loadbalancer.server.port=8080"
+      - "traefik.http.services.${APP_NAME}.loadbalancer.server.port=3000"
 
 networks:
   traefik-net:
